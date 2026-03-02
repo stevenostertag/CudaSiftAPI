@@ -637,6 +637,108 @@ class CuSift:
 
         return warped1, warped2
 
+    # -- Convenience combo pipelines --------------------------------------
+
+    def extract_and_match(
+        self,
+        image1: Union[str, Path, np.ndarray],
+        image2: Union[str, Path, np.ndarray],
+        *,
+        width1: Optional[int] = None,
+        height1: Optional[int] = None,
+        width2: Optional[int] = None,
+        height2: Optional[int] = None,
+        options: Optional[ExtractOptions] = None,
+    ) -> tuple[KeypointList, KeypointList, List[MatchResult]]:
+        """Extract SIFT features from two images and match them in one call.
+
+        This is a convenience wrapper around the C ``ExtractAndMatchSift``
+        function, which fuses :meth:`extract` and :meth:`match` into a
+        single GPU-accelerated pipeline call, avoiding an extra
+        host ↔ device round-trip.
+
+        Parameters
+        ----------
+        image1 : str | Path | numpy.ndarray
+            First image (file path or 2-D ``float32`` array).
+        image2 : str | Path | numpy.ndarray
+            Second image (file path or 2-D ``float32`` array).
+        width1, height1 : int, optional
+            Dimension overrides for *image1* (only needed for 1-D arrays).
+        width2, height2 : int, optional
+            Dimension overrides for *image2* (only needed for 1-D arrays).
+        options : ExtractOptions, optional
+            Extraction parameters applied to *both* images.  Uses
+            :class:`ExtractOptions` defaults when not provided.
+
+        Returns
+        -------
+        (kp1, kp2, matches) : tuple[KeypointList, KeypointList, list[MatchResult]]
+            *kp1* and *kp2* are the keypoints extracted from each image.
+            *matches* contains one :class:`MatchResult` per successfully
+            matched correspondence (unmatched keypoints are omitted).
+            Both ``KeypointList`` objects own their underlying
+            ``SiftData``; call ``.free()`` or use them as context managers
+            to release GPU memory early.
+
+        Raises
+        ------
+        CuSiftError
+            If the underlying C library reports an error.
+        """
+        # -- Resolve pixel data -------------------------------------------
+        pix1, w1, h1 = _resolve_image_arg(image1, width1, height1, "image1")
+        pix2, w2, h2 = _resolve_image_arg(image2, width2, height2, "image2")
+
+        # -- Build ctypes arguments ---------------------------------------
+        img1_ct, _pix1_ref = _make_image_t(pix1, w1, h1)
+        img2_ct, _pix2_ref = _make_image_t(pix2, w2, h2)
+        sift_data1 = SiftData()
+        sift_data2 = SiftData()
+        opts_ct = (options or ExtractOptions())._to_ctypes()
+
+        # -- Call the C function ------------------------------------------
+        self._lib.ExtractAndMatchSift(
+            byref(img1_ct),
+            byref(img2_ct),
+            byref(sift_data1),
+            byref(sift_data2),
+            byref(opts_ct),
+        )
+        _check_error(self._lib)
+
+        # -- Convert keypoints --------------------------------------------
+        kps1: List[Keypoint] = []
+        for i in range(sift_data1.numPts):
+            kps1.append(Keypoint._from_sift_point(sift_data1.h_data[i]))
+        kp1 = KeypointList(kps1, sift_data1, self._lib)
+
+        kps2: List[Keypoint] = []
+        for i in range(sift_data2.numPts):
+            kps2.append(Keypoint._from_sift_point(sift_data2.h_data[i]))
+        kp2 = KeypointList(kps2, sift_data2, self._lib)
+
+        # -- Read back match results from sift_data1 ----------------------
+        matches: List[MatchResult] = []
+        for i in range(sift_data1.numPts):
+            pt = sift_data1.h_data[i]
+            if pt.match >= 0:
+                matches.append(
+                    MatchResult(
+                        query_index=i,
+                        match_index=pt.match,
+                        x1=pt.xpos,
+                        y1=pt.ypos,
+                        x2=pt.match_xpos,
+                        y2=pt.match_ypos,
+                        error=pt.match_error,
+                        score=pt.score,
+                        ambiguity=pt.ambiguity,
+                    )
+                )
+
+        return kp1, kp2, matches
+
     # -- Visualisation ----------------------------------------------------
 
     @staticmethod

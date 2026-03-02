@@ -11,8 +11,6 @@ from pathlib import Path
 
 import numpy as np
 
-import PIL.Image
-
 # Ensure the cusift package is importable from this directory
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -52,15 +50,15 @@ def main() -> None:
     print(f"  → {len(kp2)} keypoints")
 
     # Min sampling value set to 8.0, so only keypoints with scale >= 8.0 will have their descriptors drawn.
-    sift.draw_descriptors(str(IMG1), kp1, 8, str(DATA_DIR / "img1_desc_py.png"))
+    #sift.draw_descriptors(str(IMG1), kp1, 8, str(DATA_DIR / "img1_desc_py.png"))
 
     if len(kp1) == 0 or len(kp2) == 0:
         print("ERROR: No keypoints extracted - cannot continue.")
         sys.exit(1)
 
     # Draw keypoints on the first image and save as PNG (for visual verification)
-    sift.draw_keypoints(str(IMG1), kp1, str(DATA_DIR / "img1_kp_py.png"))
-    sift.draw_keypoints(str(IMG2), kp2, str(DATA_DIR / "img2_kp_py.png"))
+    #sift.draw_keypoints(str(IMG1), kp1, str(DATA_DIR / "img1_kp_py.png"))
+    #sift.draw_keypoints(str(IMG2), kp2, str(DATA_DIR / "img2_kp_py.png"))
 
     # Print a sample keypoint
     sample = kp1[0]
@@ -130,6 +128,60 @@ def main() -> None:
     # -- Cleanup ----------------------------------------------------------
     kp1.free()
     kp2.free()
+
+    # =====================================================================
+    # Test extract_and_match → find_homography → warp_images pipeline
+    # =====================================================================
+    print("\n" + "=" * 60)
+    print("Testing extract_and_match combo pipeline")
+    print("=" * 60)
+
+    print(f"\nExtracting & matching in one call ...")
+    kp1b, kp2b, matches_b = sift.extract_and_match(
+        str(IMG1), str(IMG2), options=extract_opts,
+    )
+    print(f"  → {len(kp1b)} keypoints from {IMG1.name}")
+    print(f"  → {len(kp2b)} keypoints from {IMG2.name}")
+    print(f"  → {len(matches_b)} correspondences")
+
+    if matches_b:
+        for m in matches_b[:5]:
+            print(f"    kp1[{m.query_index}] ({m.x1:.1f}, {m.y1:.1f}) "
+                  f"↔ kp2[{m.match_index}] ({m.x2:.1f}, {m.y2:.1f})  "
+                  f"err={m.error:.4f}")
+
+    # -- Find Homography (combo) ------------------------------------------
+    print("\nFinding homography (combo) ...")
+    H_b, n_inliers_b = sift.find_homography(kp1b, options=homo_opts)
+    print(f"  → {n_inliers_b} inliers")
+    print("  Homography:")
+    for r in range(3):
+        vals = " ".join(f"{H_b[r, c]:12.6f}" for c in range(3))
+        print(f"    [{vals}]")
+
+    # -- Warp Images (combo) ----------------------------------------------
+    print("\nWarping images (combo) ...")
+    warped1b, warped2b = sift.warp_images(str(IMG1), str(IMG2), H_b, use_gpu=True)
+    print(f"  warped1 shape: {warped1b.shape}  dtype: {warped1b.dtype}")
+    print(f"  warped2 shape: {warped2b.shape}  dtype: {warped2b.dtype}")
+
+    try:
+        from PIL import Image as PILImage
+
+        out1b = DATA_DIR / "img1_warped_combo_py.png"
+        out2b = DATA_DIR / "img2_warped_combo_py.png"
+        warped1b = np.nan_to_num(np.clip(warped1b, 1, 255), nan=0.0)
+        warped2b = np.nan_to_num(np.clip(warped2b, 1, 255), nan=0.0)
+        PILImage.fromarray(warped1b.astype(np.uint8), mode="L").save(out1b)
+        PILImage.fromarray(warped2b.astype(np.uint8), mode="L").save(out2b)
+        print(f"\n  Saved combo warped images to:\n    {out1b}\n    {out2b}")
+    except ImportError:
+        print("\n  (Pillow not installed - skipping warped image save)")
+    except Exception as e:
+        print(f"\n  Error saving combo warped images: {e}")
+
+    kp1b.free()
+    kp2b.free()
 
     print("\n" + "=" * 60)
     print("All tests passed!")
