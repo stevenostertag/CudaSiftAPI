@@ -235,14 +235,24 @@ def main() -> None:
     print("Testing full pipeline (extract+match+homography+warp)")
     print("=" * 60)
 
-    print(f"\nRunning full pipeline in one call ...")
+    print(f"\nPreloading images as numpy arrays ...")
+    from PIL import Image as PILPreload
+    img1_arr = np.asarray(PILPreload.open(IMG1).convert("L"), dtype=np.float32)
+    img2_arr = np.asarray(PILPreload.open(IMG2).convert("L"), dtype=np.float32)
+    print(f"  img1: {img1_arr.shape}  img2: {img2_arr.shape}")
+
+    print("Running full pipeline in one call ...")
+    import time
+    start = time.perf_counter()
     kp1d, kp2d, matches_d, H_d, n_inliers_d, warped1d, warped2d = (
         sift.extract_and_match_and_find_homography_and_warp(
-            str(IMG1), str(IMG2),
+            img1_arr, img2_arr,
             extract_options=extract_opts,
             homography_options=homo_opts,
         )
     )
+    end = time.perf_counter()
+    print(f"  Full pipeline execution time: {end - start:.4f} seconds")
     print(f"  \u2192 {len(kp1d)} keypoints from {IMG1.name}")
     print(f"  \u2192 {len(kp2d)} keypoints from {IMG2.name}")
     print(f"  \u2192 {len(matches_d)} correspondences")
