@@ -49,16 +49,9 @@ def main() -> None:
     kp2 = sift.extract(str(IMG2), options=extract_opts)
     print(f"  → {len(kp2)} keypoints")
 
-    # Min sampling value set to 8.0, so only keypoints with scale >= 8.0 will have their descriptors drawn.
-    #sift.draw_descriptors(str(IMG1), kp1, 8, str(DATA_DIR / "img1_desc_py.png"))
-
     if len(kp1) == 0 or len(kp2) == 0:
         print("ERROR: No keypoints extracted - cannot continue.")
         sys.exit(1)
-
-    # Draw keypoints on the first image and save as PNG (for visual verification)
-    #sift.draw_keypoints(str(IMG1), kp1, str(DATA_DIR / "img1_kp_py.png"))
-    #sift.draw_keypoints(str(IMG2), kp2, str(DATA_DIR / "img2_kp_py.png"))
 
     # Print a sample keypoint
     sample = kp1[0]
@@ -235,9 +228,68 @@ def main() -> None:
     kp1c.free()
     kp2c.free()
 
+    # =====================================================================
+    # Test full pipeline: extract_and_match_and_find_homography_and_warp
+    # =====================================================================
+    print("\n" + "=" * 60)
+    print("Testing full pipeline (extract+match+homography+warp)")
+    print("=" * 60)
+
+    print(f"\nRunning full pipeline in one call ...")
+    kp1d, kp2d, matches_d, H_d, n_inliers_d, warped1d, warped2d = (
+        sift.extract_and_match_and_find_homography_and_warp(
+            str(IMG1), str(IMG2),
+            extract_options=extract_opts,
+            homography_options=homo_opts,
+        )
+    )
+    print(f"  \u2192 {len(kp1d)} keypoints from {IMG1.name}")
+    print(f"  \u2192 {len(kp2d)} keypoints from {IMG2.name}")
+    print(f"  \u2192 {len(matches_d)} correspondences")
+    print(f"  \u2192 {n_inliers_d} inliers")
+    print("  Homography:")
+    for r in range(3):
+        vals = " ".join(f"{H_d[r, c]:12.6f}" for c in range(3))
+        print(f"    [{vals}]")
+    print(f"  warped1 shape: {warped1d.shape}  dtype: {warped1d.dtype}")
+    print(f"  warped2 shape: {warped2d.shape}  dtype: {warped2d.dtype}")
+
+    if matches_d:
+        for m in matches_d[:5]:
+            print(f"    kp1[{m.query_index}] ({m.x1:.1f}, {m.y1:.1f}) "
+                  f"\u2194 kp2[{m.match_index}] ({m.x2:.1f}, {m.y2:.1f})  "
+                  f"err={m.error:.4f}")
+
+    try:
+        from PIL import Image as PILFull
+
+        out1d = DATA_DIR / "img1_warped_full_pipeline_py.png"
+        out2d = DATA_DIR / "img2_warped_full_pipeline_py.png"
+        warped1d = np.nan_to_num(np.clip(warped1d, 1, 255), nan=0.0)
+        warped2d = np.nan_to_num(np.clip(warped2d, 1, 255), nan=0.0)
+        PILFull.fromarray(warped1d.astype(np.uint8), mode="L").save(out1d)
+        PILFull.fromarray(warped2d.astype(np.uint8), mode="L").save(out2d)
+        print(f"\n  Saved full-pipeline warped images to:\n    {out1d}\n    {out2d}")
+    except ImportError:
+        print("\n  (Pillow not installed - skipping warped image save)")
+    except Exception as e:
+        print(f"\n  Error saving full-pipeline warped images: {e}")
+
+    kp1d.free()
+    kp2d.free()
+
     print("\n" + "=" * 60)
     print("All tests passed!")
     print("=" * 60)
+
+    
+    # Draw keypoints on the first image and save as PNG (for visual verification)
+    sift.draw_keypoints(str(IMG1), kp1, str(DATA_DIR / "img1_kp_py.png"))
+    sift.draw_keypoints(str(IMG2), kp2, str(DATA_DIR / "img2_kp_py.png"))
+
+    # Min sampling value set to 8.0, so only keypoints with scale >= 8.0 will have their descriptors drawn.
+    sift.draw_descriptors(str(IMG1), kp1, 8, str(DATA_DIR / "img1_desc_py.png"))
+
 
 
 if __name__ == "__main__":
