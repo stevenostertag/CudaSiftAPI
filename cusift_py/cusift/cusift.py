@@ -1085,11 +1085,89 @@ class CuSift:
         img.save(str(output))
 
     @staticmethod
+    def draw_matches(
+        image1: Union[str, Path],
+        image2: Union[str, Path],
+        matches: List[MatchResult],
+        output: Union[str, Path],
+        *,
+        line_width: int = 1,
+        point_radius: int = 3,
+    ) -> None:
+        """Draw matched keypoint pairs on a side-by-side canvas and save.
+
+        Each correspondence is drawn as a coloured line connecting the
+        keypoint positions in the two images.  Colours cycle through an
+        HSV hue ramp so individual matches are visually distinct.
+
+        Parameters
+        ----------
+        image1 : str | Path
+            Path to the first (left) image.
+        image2 : str | Path
+            Path to the second (right) image.
+        matches : list[MatchResult]
+            Match correspondences (returned by :meth:`match` or one of
+            the combo pipeline methods).
+        output : str | Path
+            File path for the annotated image (e.g. ``"matches.png"``).
+        line_width : int
+            Stroke width for the connecting lines (default 1).
+        point_radius : int
+            Radius of the keypoint dots (default 3).
+        """
+        import colorsys
+
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError as exc:
+            raise ImportError(
+                "Pillow is required for draw_matches.  "
+                "Install it with:  pip install Pillow"
+            ) from exc
+
+        img1 = Image.open(image1).convert("RGB")
+        img2 = Image.open(image2).convert("RGB")
+
+        w1, h1 = img1.size
+        w2, h2 = img2.size
+        canvas_w = w1 + w2
+        canvas_h = max(h1, h2)
+
+        canvas = Image.new("RGB", (canvas_w, canvas_h), (0, 0, 0))
+        canvas.paste(img1, (0, 0))
+        canvas.paste(img2, (w1, 0))
+
+        draw = ImageDraw.Draw(canvas)
+
+        n = len(matches)
+        for idx, m in enumerate(matches):
+            hue = idx / max(n, 1)
+            r, g, b = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+            color = (int(r * 255), int(g * 255), int(b * 255))
+
+            x1, y1 = m.x1, m.y1
+            x2, y2 = m.x2 + w1, m.y2  # offset into the right panel
+            draw.line([(x1, y1), (x2, y2)], fill=color, width=line_width)
+            draw.ellipse(
+                [x1 - point_radius, y1 - point_radius,
+                 x1 + point_radius, y1 + point_radius],
+                fill=color,
+            )
+            draw.ellipse(
+                [x2 - point_radius, y2 - point_radius,
+                 x2 + point_radius, y2 + point_radius],
+                fill=color,
+            )
+
+        canvas.save(str(output))
+
+    @staticmethod
     def draw_descriptors(
         image: Union[str, Path, np.ndarray],
         keypoints: KeypointList,
         min_sampling: float,
-        output: Union[str, Path],
+        output_dir: Union[str, Path],
         *,
         patch_size: int = 256,
         grid_size: int = 256,
@@ -1099,12 +1177,22 @@ class CuSift:
         width: Optional[int] = None,
         height: Optional[int] = None,
     ) -> None:
-        """Visualise a single keypoint's 128-d SIFT descriptor.
+        """Visualise SIFT descriptors for keypoints above a sampling threshold.
 
-        Produces a side-by-side image: the left half shows the image
-        patch centred on the keypoint (with a crosshair and circle),
-        and the right half shows the 4x4 grid of 8-bin orientation
-        histograms (rose/polar plots) that make up the descriptor.
+        For each qualifying keypoint, produces a side-by-side image: the
+        left half shows the image patch centred on the keypoint (with a
+        crosshair and circle), and the right half shows the 4×4 grid of
+        8-bin orientation histograms (rose/polar plots) that make up the
+        descriptor.
+
+        Images are saved into subdirectories of *output_dir* organised by
+        subsampling value::
+
+            output_dir/
+                sub_1.0/
+                    desc_42_x310_y205.png
+                sub_2.0/
+                    ...
 
         Parameters
         ----------
@@ -1113,9 +1201,10 @@ class CuSift:
         keypoints : KeypointList
             Keypoints returned by :meth:`extract`.
         min_sampling : float
-            Minimum sampling rate for keypoints to be drawn.
-        output : str | Path
-            File path for saving the descriptors that pass the sampling threshold. We create sub-directories.
+            Minimum subsampling value; keypoints below this are skipped.
+        output_dir : str | Path
+            Root directory for saving descriptor images.  Subdirectories
+            named ``sub_<value>`` are created automatically.
         patch_size : int
             Size in pixels of the image-patch panel (default 256).
         grid_size : int
@@ -1125,7 +1214,7 @@ class CuSift:
         bg_color : str
             Background colour for the histogram panel (default ``"black"``).
         grid_line_color : str
-            Colour for the 4x4 grid lines (default ``"#444444"``).
+            Colour for the 4×4 grid lines (default ``"#444444"``).
         width, height : int, optional
             Dimension overrides when *image* is a 1-D array.
         """
@@ -1138,6 +1227,9 @@ class CuSift:
                 "Pillow is required for draw_descriptor.  "
                 "Install it with:  pip install Pillow"
             ) from exc
+
+        output_root = Path(output_dir)
+        output_root.mkdir(parents=True, exist_ok=True)
 
         for index, kp in enumerate(keypoints):
             if kp.subsampling < min_sampling:
@@ -1287,14 +1379,9 @@ class CuSift:
             )
 
             # -- Save the combined image --------------------------------------
-            output_path = Path(output)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Sub-directory based on subsampling value (e.g. "output/sub_1.0/desc_0.png")
-            sub_dir = output_path.parent / f"sub_{kp.subsampling:.1f}"
+            sub_dir = output_root / f"sub_{kp.subsampling:.1f}"
             sub_dir.mkdir(parents=True, exist_ok=True)
 
-            # Filename based on keypoint index and (x,y) position
             filename = f"desc_{index}_x{int(kp.x)}_y{int(kp.y)}.png"
             combined.save(sub_dir / filename)
     

@@ -298,7 +298,7 @@ def main() -> None:
     sift.draw_keypoints(str(IMG2), kp2, str(DATA_DIR / "img2_kp_py.png"))
 
     # Min sampling value set to 8.0, so only keypoints with scale >= 8.0 will have their descriptors drawn.
-    sift.draw_descriptors(str(IMG1), kp1, 8, str(DATA_DIR / "img1_desc_py.png"))
+    sift.draw_descriptors(str(IMG1), kp1, 8, str(DATA_DIR / "descriptors"))
 
 
 
