@@ -248,6 +248,7 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Image 1: {img1_path}")
     print(f"Image 2: {img2_path}")
     print("Running full pipeline (extract → match → homography → warp) ...")
+    print(f"  Extraction options: {extract_opts}")
 
     # Load images to numpy arrays first
     from PIL import Image
