@@ -8,20 +8,20 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 // Kernel configuration
+//
+// NOTE: The __constant__ / __device__ globals that used to live here
+// (d_MaxNumPoints, d_PointCounter, d_ScaleDownKernel, d_LowPassKernel,
+// d_LaplaceKernel) have been replaced by per-call parameters passed
+// through SiftDeviceContext.  This makes the library safe for concurrent
+// use from multiple threads / processes.
 ///////////////////////////////////////////////////////////////////////////////
-
-__constant__ int d_MaxNumPoints;
-__device__ unsigned int d_PointCounter[8 * 2 + 1];
-__constant__ float d_ScaleDownKernel[5];
-__constant__ float d_LowPassKernel[2 * LOWPASS_R + 1];
-__constant__ float d_LaplaceKernel[8 * 12 * 16];
 
 ///////////////////////////////////////////////////////////////////////////////
 // Lowpass filter and subsample image
 ///////////////////////////////////////////////////////////////////////////////
 
 // Keep
-__global__ void ScaleDown(float *d_Result, float *d_Data, int width, int pitch, int height, int newpitch)
+__global__ void ScaleDown(float *d_Result, float *d_Data, int width, int pitch, int height, int newpitch, const float *__restrict__ d_ScaleDownKernel)
 {
     __shared__ float inrow[SCALEDOWN_W + 4];
     __shared__ float brow[5 * (SCALEDOWN_W / 2)];
@@ -133,7 +133,7 @@ __device__ float FastAtan2(float y, float x)
 }
 
 // Keep
-__global__ void ExtractSiftDescriptorsCONSTNew(cudaTextureObject_t texObj, SiftPoint *d_sift, float subsampling, int octave)
+__global__ void ExtractSiftDescriptorsCONSTNew(cudaTextureObject_t texObj, SiftPoint *d_sift, float subsampling, int octave, int d_MaxNumPoints, unsigned int *d_PointCounter)
 {
     __shared__ float gauss[16];
     __shared__ float buffer[128];
@@ -257,7 +257,7 @@ __global__ void ExtractSiftDescriptorsCONSTNew(cudaTextureObject_t texObj, SiftP
 
 // With constant number of blocks
 // Keep
-__global__ void ComputeOrientationsCONST(cudaTextureObject_t texObj, SiftPoint *d_Sift, int octave)
+__global__ void ComputeOrientationsCONST(cudaTextureObject_t texObj, SiftPoint *d_Sift, int octave, int d_MaxNumPoints, unsigned int *d_PointCounter)
 {
     __shared__ float hist[64];
     __shared__ float gauss[11];
@@ -361,7 +361,7 @@ __global__ void ComputeOrientationsCONST(cudaTextureObject_t texObj, SiftPoint *
 ///////////////////////////////////////////////////////////////////////////////
 
 // Keep
-__global__ void FindPointsMultiNew(float *d_Data0, SiftPoint *d_Sift, int width, int pitch, int height, float subsampling, float lowestScale, float thresh, float factor, float edgeLimit, int octave)
+__global__ void FindPointsMultiNew(float *d_Data0, SiftPoint *d_Sift, int width, int pitch, int height, float subsampling, float lowestScale, float thresh, float factor, float edgeLimit, int octave, int d_MaxNumPoints, unsigned int *d_PointCounter)
 {
 #define MEMWID (MINMAX_W + 2)
     __shared__ unsigned short points[2 * MEMWID];
@@ -515,7 +515,7 @@ __global__ void FindPointsMultiNew(float *d_Data0, SiftPoint *d_Sift, int width,
 }
 
 // Keep
-__global__ void LaplaceMultiMem(float *d_Image, float *d_Result, int width, int pitch, int height, int octave)
+__global__ void LaplaceMultiMem(float *d_Image, float *d_Result, int width, int pitch, int height, int octave, const float *__restrict__ d_LaplaceKernel)
 {
     __shared__ float buff[(LAPLACE_W + 2 * LAPLACE_R) * LAPLACE_S];
     const int tx = threadIdx.x;
@@ -530,7 +530,7 @@ __global__ void LaplaceMultiMem(float *d_Image, float *d_Result, int width, int 
         for (int scale = 0; scale < LAPLACE_S; scale++)
         {
             float *buf = buff + (LAPLACE_W + 2 * LAPLACE_R) * scale;
-            float *kernel = d_LaplaceKernel + octave * 12 * 16 + scale * 16;
+            const float *kernel = d_LaplaceKernel + octave * 12 * 16 + scale * 16;
             for (int i = 0; i <= LAPLACE_R; i++)
                 kern[scale][i] = kernel[i];
             float sum = kern[scale][0] * temp[LAPLACE_R];
@@ -562,7 +562,7 @@ __global__ void LaplaceMultiMem(float *d_Image, float *d_Result, int width, int 
 }
 
 // Keep
-__global__ void LowPassBlock(float *d_Image, float *d_Result, int width, int pitch, int height)
+__global__ void LowPassBlock(float *d_Image, float *d_Result, int width, int pitch, int height, const float *__restrict__ d_LowPassKernel)
 {
     __shared__ float xrows[16][32];
     const int tx = threadIdx.x;
@@ -570,7 +570,7 @@ __global__ void LowPassBlock(float *d_Image, float *d_Result, int width, int pit
     const int xp = blockIdx.x * LOWPASS_W + tx;
     const int yp = blockIdx.y * LOWPASS_H + ty;
     const int N = 16;
-    float *k = d_LowPassKernel;
+    const float *k = d_LowPassKernel;
     int xl = max(min(xp - 4, width - 1), 0);
 #pragma unroll
     for (int l = -8; l < 4; l += 4)

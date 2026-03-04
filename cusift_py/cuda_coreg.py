@@ -32,6 +32,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Explicit path to the cusift shared library (cusift.dll / libcusift.so).",
     )
 
+    # -- Upscaling option --------------------------------------------------
+    p.add_argument(
+        "--scale-factor", type=float, default=1.0, metavar="FACTOR",
+        help="Upscale input images by the given factor (default: 1)."
+    )
+
     # -- Extraction options ----------------------------------------------
     ext = p.add_argument_group("SIFT extraction parameters")
     ext.add_argument("--thresh", type=float, default=3.0,
@@ -167,6 +173,22 @@ def _filter_inliers(
 
     return [m for m, e in zip(matches, errors) if e <= thresh]
 
+from scipy.interpolate import RectBivariateSpline
+def upscale_image(img: np.ndarray, factor: float = 1.0) -> np.ndarray:
+    """Upscale *img* by *factor* using bicubic spline interpolation.
+
+    Returns the original array unchanged when *factor* is 1.0.
+    """
+    if factor == 1.0:
+        return img
+    h, w = img.shape
+    x = np.arange(w)
+    y = np.arange(h)
+    f = RectBivariateSpline(y, x, img, kx=3, ky=3)
+    x_new = np.linspace(0, w - 1, int(w * factor))
+    y_new = np.linspace(0, h - 1, int(h * factor))
+    return f(y_new, x_new).astype(np.float32)
+    
 
 def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
@@ -219,11 +241,21 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Image 2: {img2_path}")
     print("Running full pipeline (extract → match → homography → warp) ...")
 
+    # Load images to numpy arrays first
+    from PIL import Image
+    img1_raw = np.array(Image.open(str(img1_path)).convert("L"), dtype=np.float32)
+    img2_raw = np.array(Image.open(str(img2_path)).convert("L"), dtype=np.float32)
+
+    # Upscale if requested (scale_factor=1.0 is a no-op)
+    scale_factor = args.scale_factor
+    img1 = upscale_image(img1_raw, scale_factor)
+    img2 = upscale_image(img2_raw, scale_factor)
+
     t_start = time.perf_counter()
     kp1, kp2, matches, H, n_inliers, warped1, warped2 = (
         sift.extract_and_match_and_find_homography_and_warp(
-            str(img1_path),
-            str(img2_path),
+            img1,
+            img2,
             extract_options=extract_opts,
             homography_options=homography_opts,
         )
@@ -377,17 +409,28 @@ def main(argv: list[str] | None = None) -> None:
     # -- Visualizations --------------------------------------------------
     print("\nGenerating visualizations ...")
 
+    # Use the (potentially upscaled) images for all visualizations so that
+    # keypoint coordinates match the pixel grid.
+    img1_h, img1_w = img1.shape
+    img2_h, img2_w = img2.shape
+
+    # Save upscaled greyscale PNGs for draw_matches (which requires file paths)
+    upscaled_img1_path = vis_dir / "_upscaled_image1.png"
+    upscaled_img2_path = vis_dir / "_upscaled_image2.png"
+    Image.fromarray(np.clip(img1, 0, 255).astype(np.uint8), mode="L").save(str(upscaled_img1_path))
+    Image.fromarray(np.clip(img2, 0, 255).astype(np.uint8), mode="L").save(str(upscaled_img2_path))
+
     # Keypoints on each image
     kp1_vis = vis_dir / "keypoints_image1.png"
     kp2_vis = vis_dir / "keypoints_image2.png"
-    sift.draw_keypoints(str(img1_path), kp1, str(kp1_vis))
-    sift.draw_keypoints(str(img2_path), kp2, str(kp2_vis))
+    sift.draw_keypoints(img1, kp1, str(kp1_vis), width=img1_w, height=img1_h)
+    sift.draw_keypoints(img2, kp2, str(kp2_vis), width=img2_w, height=img2_h)
     print(f"  Saved keypoint visualizations: {kp1_vis}, {kp2_vis}")
 
     # Match visualization (side-by-side)
     if matches:
         matches_vis = vis_dir / "matches.png"
-        sift.draw_matches(str(img1_path), str(img2_path), matches, str(matches_vis))
+        sift.draw_matches(str(upscaled_img1_path), str(upscaled_img2_path), matches, str(matches_vis))
         print(f"  Saved match visualization: {matches_vis}")
 
         # Inlier-only matches (reprojection error <= RANSAC threshold)
@@ -395,7 +438,7 @@ def main(argv: list[str] | None = None) -> None:
         if inlier_matches:
             inliers_vis = vis_dir / "matches_inliers.png"
             sift.draw_matches(
-                str(img1_path), str(img2_path), inlier_matches, str(inliers_vis),
+                str(upscaled_img1_path), str(upscaled_img2_path), inlier_matches, str(inliers_vis),
             )
             print(f"  Saved inlier match visualization ({len(inlier_matches)} inliers): {inliers_vis}")
 
@@ -404,10 +447,12 @@ def main(argv: list[str] | None = None) -> None:
         desc1_vis = vis_dir / "descriptors" / "image1"
         desc2_vis = vis_dir / "descriptors" / "image2"
         sift.draw_descriptors(
-            str(img1_path), kp1, args.min_subsampling, str(desc1_vis),
+            img1, kp1, args.min_subsampling, str(desc1_vis),
+            width=img1_w, height=img1_h,
         )
         sift.draw_descriptors(
-            str(img2_path), kp2, args.min_subsampling, str(desc2_vis),
+            img2, kp2, args.min_subsampling, str(desc2_vis),
+            width=img2_w, height=img2_h,
         )
         print(f"  Saved descriptor visualizations to: {desc1_vis}, {desc2_vis}")
 

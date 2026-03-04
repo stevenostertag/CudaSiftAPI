@@ -41,6 +41,20 @@
 #define LOWPASS_H      32 //16
 #define LOWPASS_R       4
 
+///////////////////////////////////////////////////////////////////////////////
+// Per-call device context replacing module-level __constant__/__device__
+// globals.  Allocated and freed for each ExtractSift() invocation so that
+// multiple host threads / processes can use the library concurrently without
+// stomping on shared GPU state.
+///////////////////////////////////////////////////////////////////////////////
+struct SiftDeviceContext {
+    unsigned int* d_pointCounter;      // [8*2+1]        replaces __device__   d_PointCounter
+    float*        d_laplaceKernel;     // [8*12*16]      replaces __constant__ d_LaplaceKernel
+    float*        d_scaleDownKernel;   // [5]            replaces __constant__ d_ScaleDownKernel
+    float*        d_lowPassKernel;     // [2*LOWPASS_R+1] replaces __constant__ d_LowPassKernel
+    int           maxNumPoints;        //                 replaces __constant__ d_MaxNumPoints
+};
+
 //====================== Number of threads ====================//
 // ScaleDown:               SCALEDOWN_W + 4
 // LaplaceMulti:            (LAPLACE_W+2*LAPLACE_R)*LAPLACE_S

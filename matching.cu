@@ -152,7 +152,8 @@ __global__ void FindMaxCorr10(SiftPoint *sift1, SiftPoint *sift2, int numPts1, i
 #define FMC_NH (FMC_BH / FMC_TH) //   8
 #define FMC_NT (FMC_NW * FMC_NH) // 256 = 8 warps
 
-__device__ volatile int lock = 0;
+// Never used, but keep for reference
+//__device__ volatile int lock = 0;
 
 // Keep
 template <int size>
