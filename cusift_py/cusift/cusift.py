@@ -142,6 +142,9 @@ class ExtractOptions:
     lowest_scale: float = 0.0
     """Minimum feature scale in pixels (0.0 keeps all scales)."""
 
+    highest_scale: float = float('inf')
+    """Maximum feature scale in pixels (+inf keeps all scales)."""
+
     edge_thresh: float = 10.0
     """Edge rejection threshold (ratio of principal curvatures)."""
 
@@ -163,6 +166,7 @@ class ExtractOptions:
         return ExtractSiftOptions_t(
             thresh_=self.thresh,
             lowest_scale_=self.lowest_scale,
+            highest_scale_=self.highest_scale,
             edge_thresh_=self.edge_thresh,
             init_blur_=self.init_blur,
             max_keypoints_=self.max_keypoints,

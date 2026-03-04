@@ -44,6 +44,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                      help="DoG contrast threshold (default: 3.0).")
     ext.add_argument("--lowest-scale", type=float, default=0.0,
                      help="Minimum feature scale in pixels (default: 0.0).")
+    ext.add_argument("--highest-scale", type=float, default=float('inf'),
+                     help="Maximum feature scale in pixels (default: inf = no limit).")
     ext.add_argument("--edge-thresh", type=float, default=10.0,
                      help="Edge rejection threshold (default: 10.0).")
     ext.add_argument("--init-blur", type=float, default=1.0,
@@ -217,6 +219,7 @@ def main(argv: list[str] | None = None) -> None:
     extract_opts = ExtractOptions(
         thresh=args.thresh,
         lowest_scale=args.lowest_scale,
+        highest_scale=args.highest_scale,
         edge_thresh=args.edge_thresh,
         init_blur=args.init_blur,
         max_keypoints=args.max_keypoints,

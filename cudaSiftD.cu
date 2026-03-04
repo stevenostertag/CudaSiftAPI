@@ -361,7 +361,7 @@ __global__ void ComputeOrientationsCONST(cudaTextureObject_t texObj, SiftPoint *
 ///////////////////////////////////////////////////////////////////////////////
 
 // Keep
-__global__ void FindPointsMultiNew(float *d_Data0, SiftPoint *d_Sift, int width, int pitch, int height, float subsampling, float lowestScale, float thresh, float factor, float edgeLimit, int octave, int d_MaxNumPoints, unsigned int *d_PointCounter)
+__global__ void FindPointsMultiNew(float *d_Data0, SiftPoint *d_Sift, int width, int pitch, int height, float subsampling, float lowestScale, float highestScale, float thresh, float factor, float edgeLimit, int octave, int d_MaxNumPoints, unsigned int *d_PointCounter)
 {
 #define MEMWID (MINMAX_W + 2)
     __shared__ unsigned short points[2 * MEMWID];
@@ -498,7 +498,7 @@ __global__ void FindPointsMultiNew(float *d_Data0, SiftPoint *d_Sift, int width,
             float dval = 0.5f * (dx * pdx + dy * pdy + ds * pds);
             int maxPts = d_MaxNumPoints;
             float sc = powf(2.0f, (float)scale / NUM_SCALES) * exp2f(pds * factor);
-            if (sc >= lowestScale)
+            if (sc >= lowestScale && sc <= highestScale)
             {
                 atomicMax(&d_PointCounter[2 * octave + 0], d_PointCounter[2 * octave - 1]);
                 unsigned int idx = atomicInc(&d_PointCounter[2 * octave + 0], 0x7fffffff);

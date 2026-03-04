@@ -83,7 +83,7 @@ void FreeSiftTempMemory(float *memoryTmp)
 }
 
 // Keep
-void ExtractSift(SiftData *siftData, CudaImage *img, int numOctaves, float initBlur, float thresh, float lowestScale, float edgeLimit, float *tempMemory)
+void ExtractSift(SiftData *siftData, CudaImage *img, int numOctaves, float initBlur, float thresh, float lowestScale, float highestScale, float edgeLimit, float *tempMemory)
 {
     // ---- Per-call device context (replaces module-level __constant__/__device__ globals) ----
     SiftDeviceContext ctx;
@@ -137,7 +137,7 @@ void ExtractSift(SiftData *siftData, CudaImage *img, int numOctaves, float initB
     PrepareLaplaceKernels(numOctaves, initBlur, kernel);
     safeCall(cudaMemcpy(ctx.d_laplaceKernel, kernel, laplaceBytes, cudaMemcpyHostToDevice));
     LowPass(lowImgGuard.get(), img, max(initBlur, 0.001f), ctx);
-    ExtractSiftLoop(siftData, lowImgGuard.get(), numOctaves, initBlur, thresh, lowestScale, edgeLimit, 1.0f, memoryTmp, memorySub + height * iAlignUp(width, 128), ctx);
+    ExtractSiftLoop(siftData, lowImgGuard.get(), numOctaves, initBlur, thresh, lowestScale, highestScale, edgeLimit, 1.0f, memoryTmp, memorySub + height * iAlignUp(width, 128), ctx);
     safeCall(cudaMemcpy(&siftData->numPts, &ctx.d_pointCounter[2 * numOctaves], sizeof(int), cudaMemcpyDeviceToHost));
     siftData->numPts = (siftData->numPts < siftData->maxPts ? siftData->numPts : siftData->maxPts);
 
@@ -153,7 +153,7 @@ void ExtractSift(SiftData *siftData, CudaImage *img, int numOctaves, float initB
 }
 
 // Keep
-int ExtractSiftLoop(SiftData *siftData, CudaImage *img, int numOctaves, float initBlur, float thresh, float lowestScale, float edgeLimit, float subsampling, float *memoryTmp, float *memorySub, SiftDeviceContext &ctx)
+int ExtractSiftLoop(SiftData *siftData, CudaImage *img, int numOctaves, float initBlur, float thresh, float lowestScale, float highestScale, float edgeLimit, float subsampling, float *memoryTmp, float *memorySub, SiftDeviceContext &ctx)
 {
     int w = img->width;
     int h = img->height;
@@ -164,14 +164,14 @@ int ExtractSiftLoop(SiftData *siftData, CudaImage *img, int numOctaves, float in
         CudaImage_Allocate(subImgGuard.get(), w / 2, h / 2, p, false, memorySub, NULL);
         ScaleDown(subImgGuard.get(), img, 0.5f, ctx);
         float totInitBlur = (float)sqrt(initBlur * initBlur + 0.5f * 0.5f) / 2.0f;
-        ExtractSiftLoop(siftData, subImgGuard.get(), numOctaves - 1, totInitBlur, thresh, lowestScale, edgeLimit, subsampling * 2.0f, memoryTmp, memorySub + (h / 2) * p, ctx);
+        ExtractSiftLoop(siftData, subImgGuard.get(), numOctaves - 1, totInitBlur, thresh, lowestScale, highestScale, edgeLimit, subsampling * 2.0f, memoryTmp, memorySub + (h / 2) * p, ctx);
     }
-    ExtractSiftOctave(siftData, img, numOctaves, thresh, lowestScale, edgeLimit, subsampling, memoryTmp, ctx);
+    ExtractSiftOctave(siftData, img, numOctaves, thresh, lowestScale, highestScale, edgeLimit, subsampling, memoryTmp, ctx);
     return 0;
 }
 
 // Keep
-void ExtractSiftOctave(SiftData *siftData, CudaImage *img, int octave, float thresh, float lowestScale, float edgeLimit, float subsampling, float *memoryTmp, SiftDeviceContext &ctx)
+void ExtractSiftOctave(SiftData *siftData, CudaImage *img, int octave, float thresh, float lowestScale, float highestScale, float edgeLimit, float subsampling, float *memoryTmp, SiftDeviceContext &ctx)
 {
     const int nd = NUM_SCALES + 3;
     CudaImage diffImg[nd];
@@ -207,7 +207,7 @@ void ExtractSiftOctave(SiftData *siftData, CudaImage *img, int octave, float thr
     TextureObjectGuard texGuard(texObj);
 
     LaplaceMulti(texObj, img, diffImg, octave, ctx);
-    FindPointsMulti(diffImg, siftData, thresh, edgeLimit, 1.0f / NUM_SCALES, lowestScale / subsampling, subsampling, octave, ctx);
+    FindPointsMulti(diffImg, siftData, thresh, edgeLimit, 1.0f / NUM_SCALES, lowestScale / subsampling, highestScale / subsampling, subsampling, octave, ctx);
     ComputeOrientations(texObj, img, siftData, octave, ctx);
     ExtractSiftDescriptors(texObj, siftData, subsampling, octave, ctx);
 
@@ -359,7 +359,7 @@ double LaplaceMulti(cudaTextureObject_t /*texObj*/, CudaImage *baseImage, CudaIm
 }
 
 // Keep
-double FindPointsMulti(CudaImage *sources, SiftData *siftData, float thresh, float edgeLimit, float factor, float lowestScale, float subsampling, int octave, SiftDeviceContext &ctx)
+double FindPointsMulti(CudaImage *sources, SiftData *siftData, float thresh, float edgeLimit, float factor, float lowestScale, float highestScale, float subsampling, int octave, SiftDeviceContext &ctx)
 {
     if (sources->d_data == NULL)
     {
@@ -371,7 +371,7 @@ double FindPointsMulti(CudaImage *sources, SiftData *siftData, float thresh, flo
     int h = sources->height;
     dim3 blocks(iDivUp(w, MINMAX_W) * NUM_SCALES, iDivUp(h, MINMAX_H));
     dim3 threads(MINMAX_W + 2);
-    FindPointsMultiNew<<<blocks, threads>>>(sources->d_data, siftData->d_data, w, p, h, subsampling, lowestScale, thresh, factor, edgeLimit, octave, ctx.maxNumPoints, ctx.d_pointCounter);
+    FindPointsMultiNew<<<blocks, threads>>>(sources->d_data, siftData->d_data, w, p, h, subsampling, lowestScale, highestScale, thresh, factor, edgeLimit, octave, ctx.maxNumPoints, ctx.d_pointCounter);
     checkMsg("FindPointsMulti() execution failed\n");
     return 0.0;
 }

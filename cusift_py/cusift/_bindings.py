@@ -65,6 +65,7 @@ class ExtractSiftOptions_t(Structure):
     _fields_ = [
         ("thresh_", c_float),
         ("lowest_scale_", c_float),
+        ("highest_scale_", c_float),
         ("edge_thresh_", c_float),
         ("init_blur_", c_float),
         ("max_keypoints_", c_int),

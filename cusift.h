@@ -220,6 +220,7 @@ extern "C"
     {
         float thresh_;          /**< Contrast threshold applied to DoG extrema. */
         float lowest_scale_;    /**< Minimum feature scale (in pixels) to keep. */
+        float highest_scale_;   /**< Maximum feature scale (in pixels) to keep (+inf = no limit). */
         float edge_thresh_;     /**< Edge rejection threshold (ratio of principal curvatures). */
         float init_blur_;       /**< Assumed blur level (sigma) of the input image. */
         int max_keypoints_;     /**< Maximum number of keypoints to return. */

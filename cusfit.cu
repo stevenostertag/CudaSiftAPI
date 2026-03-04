@@ -171,6 +171,7 @@ void ExtractSiftFromImage(const Image_t *image, SiftData *sift_data, const Extra
             options->init_blur_,
             options->thresh_,
             options->lowest_scale_,
+            options->highest_scale_,
             options->edge_thresh_,
             tempMemory.get());
         if (options->scale_suppression_radius_ > 0.0f)
@@ -303,7 +304,7 @@ void ExtractAndMatchSift(const Image_t *image1, const Image_t *image2, SiftData 
         //CudaImage_Normalize(cuda_image1.get());
         ExtractSift(sift_data1, cuda_image1.get(), octaves,
                     extract_options->init_blur_, extract_options->thresh_,
-                    extract_options->lowest_scale_, extract_options->edge_thresh_,
+                    extract_options->lowest_scale_, extract_options->highest_scale_, extract_options->edge_thresh_,
                     tempMemory.get());
         if (extract_options->scale_suppression_radius_ > 0.0f)
             SuppressEmbeddedPoints(sift_data1, extract_options->scale_suppression_radius_);
@@ -316,7 +317,7 @@ void ExtractAndMatchSift(const Image_t *image1, const Image_t *image2, SiftData 
         //CudaImage_Normalize(cuda_image2.get());
         ExtractSift(sift_data2, cuda_image2.get(), octaves,
                     extract_options->init_blur_, extract_options->thresh_,
-                    extract_options->lowest_scale_, extract_options->edge_thresh_,
+                    extract_options->lowest_scale_, extract_options->highest_scale_, extract_options->edge_thresh_,
                     tempMemory.get());
         if (extract_options->scale_suppression_radius_ > 0.0f)
             SuppressEmbeddedPoints(sift_data2, extract_options->scale_suppression_radius_);
@@ -351,7 +352,7 @@ void ExtractAndMatchAndFindHomography(const Image_t *image1, const Image_t *imag
         //CudaImage_Normalize(cuda_image1.get());
         ExtractSift(sift_data1, cuda_image1.get(), octaves,
                     extract_options->init_blur_, extract_options->thresh_,
-                    extract_options->lowest_scale_, extract_options->edge_thresh_,
+                    extract_options->lowest_scale_, extract_options->highest_scale_, extract_options->edge_thresh_,
                     tempMemory.get());
         if (extract_options->scale_suppression_radius_ > 0.0f)
             SuppressEmbeddedPoints(sift_data1, extract_options->scale_suppression_radius_);
@@ -364,7 +365,7 @@ void ExtractAndMatchAndFindHomography(const Image_t *image1, const Image_t *imag
         //CudaImage_Normalize(cuda_image2.get());
         ExtractSift(sift_data2, cuda_image2.get(), octaves,
                     extract_options->init_blur_, extract_options->thresh_,
-                    extract_options->lowest_scale_, extract_options->edge_thresh_,
+                    extract_options->lowest_scale_, extract_options->highest_scale_, extract_options->edge_thresh_,
                     tempMemory.get());
         if (extract_options->scale_suppression_radius_ > 0.0f)
             SuppressEmbeddedPoints(sift_data2, extract_options->scale_suppression_radius_);
@@ -671,7 +672,7 @@ void ExtractAndMatchAndFindHomographyAndWarp(const Image_t *image1, const Image_
     CudaImage_Download(cuda_image1.get());
     ExtractSift(sift_data1, cuda_image1.get(), octaves,
                 extract_options->init_blur_, extract_options->thresh_,
-                extract_options->lowest_scale_, extract_options->edge_thresh_,
+                extract_options->lowest_scale_, extract_options->highest_scale_, extract_options->edge_thresh_,
                 tempMemory.get());
     if (extract_options->scale_suppression_radius_ > 0.0f)
         SuppressEmbeddedPoints(sift_data1, extract_options->scale_suppression_radius_);
@@ -683,7 +684,7 @@ void ExtractAndMatchAndFindHomographyAndWarp(const Image_t *image1, const Image_
     CudaImage_Download(cuda_image2.get());
     ExtractSift(sift_data2, cuda_image2.get(), octaves,
                 extract_options->init_blur_, extract_options->thresh_,
-                extract_options->lowest_scale_, extract_options->edge_thresh_,
+                extract_options->lowest_scale_, extract_options->highest_scale_, extract_options->edge_thresh_,
                 tempMemory.get());
     if (extract_options->scale_suppression_radius_ > 0.0f)
         SuppressEmbeddedPoints(sift_data2, extract_options->scale_suppression_radius_);
