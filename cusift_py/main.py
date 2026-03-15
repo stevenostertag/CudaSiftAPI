@@ -388,6 +388,43 @@ class KazeDetector(_OpenCVDetector):
     def get_params(self) -> dict:
         return {k: s.value() for k, s in {**self._dspins, **self._spins}.items()}
 
+class QuantileDetector(Detector):
+    name = "Quantile"
+
+    def __init__(self):
+        self._widget: Optional[QWidget] = None
+        self._spin_quantile: Optional[QDoubleSpinBox] = None
+        self._spin_blur: Optional[QSpinBox] = None
+
+    def build_param_widget(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+
+        s = QDoubleSpinBox(); s.setRange(0.0, 1.0); s.setDecimals(3); s.setValue(0.5)
+        self._spin_quantile = s; form.addRow("Quantile:", s)
+
+        # Convolution blur param, window size
+        s = QSpinBox(); s.setRange(0, 20); s.setValue(0)
+        self._spin_blur = s; form.addRow("Blur Kernel Size:", s)
+
+        self._widget = w
+        return w
+
+    def extract(self, image: np.ndarray) -> List[DetectedKeypoint]:
+        if self._spin_quantile is None:
+            raise RuntimeError("Quantile parameter widget not built")
+        if self._spin_blur is not None and self._spin_blur.value() > 0:
+            from scipy.ndimage import gaussian_filter
+            image = gaussian_filter(image, sigma=self._spin_blur.value())
+        thresh = np.quantile(image, self._spin_quantile.value())
+        ys, xs = np.where(image >= thresh)
+        return [DetectedKeypoint(x=float(x), y=float(y), scale=1.0) for x, y in zip(xs, ys)]
+
+    def get_params(self) -> dict:
+        return {
+            "quantile": self._spin_quantile.value() if self._spin_quantile else None,
+            "blur_kernel": self._spin_blur.value() if self._spin_blur else None,
+        }
 
 # -- Zoomable Image Widget -----------------------------------------------------
 
@@ -484,7 +521,12 @@ class ZoomableImageWidget(QWidget):
 
 class SiftEvalApp(QWidget):
     # All available detectors — add new ones here
-    DETECTORS: List[type] = [CuSiftDetector, OrbDetector, AkazeDetector, BriskDetector, KazeDetector]
+    DETECTORS: List[type] = [CuSiftDetector,
+                             OrbDetector,
+                             AkazeDetector,
+                             BriskDetector,
+                             KazeDetector,
+                             QuantileDetector]
 
     def __init__(self):
         super().__init__()
