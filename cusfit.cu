@@ -752,6 +752,14 @@ void ExtractAndMatchAndFindHomographyAndWarp(const Image_t *image1, const Image_
     float originU = (float)u0;
     float originV = (float)v0;
 
+    int maxW = 2 * std::max(image1->width_, image2->width_);
+    int maxH = 2 * std::max(image1->height_, image2->height_);
+    if (outW > maxW || outH > maxH)
+    {
+        fprintf(stderr, "ExtractAndMatchAndFindHomographyAndWarp: warped image too large (%dx%d), not attempting warp\n", outW, outH);
+        return;
+    }
+
     // ── Warp on GPU — source data is already device-resident ────────────
     // Reuse the CudaImageGuard device pointers (no extra upload needed).
     float* d_src1 = cuda_image1.get()->d_data;
