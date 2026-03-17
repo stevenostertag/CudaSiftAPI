@@ -2,6 +2,7 @@
 #include "cudautils.h"
 #include "RAII_Gaurds.hpp"
 
+#include <cmath>
 #include <random>
 
 //================= Device matching functions =====================//
@@ -382,9 +383,8 @@ static void GenerateRandomSamples(int *h_randPts, int numLoops, const int *valid
 double FindHomography_private(SiftData *data, float *homography, int *numMatches, int numLoops, float minScore, float maxAmbiguity, float thresh, unsigned int seed)
 {
     *numMatches = 0;
-    homography[0] = homography[4] = homography[8] = 1.0f;
-    homography[1] = homography[2] = homography[3] = 0.0f;
-    homography[5] = homography[6] = homography[7] = 0.0f;
+    for (int i = 0; i < 9; i++)
+        homography[i] = std::nanf("");
     if (data->d_data == NULL)
         return 0.0f;
     SiftPoint *d_sift = data->d_data;
