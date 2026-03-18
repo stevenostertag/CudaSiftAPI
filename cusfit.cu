@@ -550,6 +550,20 @@ void WarpImages(const Image_t *image1, const Image_t *image2, const float *homog
     int outW = u1 - u0 + 1;
     int outH = v1 - v0 + 1;
 
+    int maxW_ = 2 * std::max(image1->width_, image2->width_);
+    int maxH_ = 2 * std::max(image1->height_, image2->height_);
+    if (outW > maxW_ || outH > maxH_)
+    {
+        fprintf(stderr, "WarpImages: warped image too large (%dx%d), not attempting warp\n", outW, outH);
+        return;
+    }
+
+    if (outW <= 0 || outH <= 0)
+    {
+        fprintf(stderr, "WarpImages: invalid output size %dx%d\n", outW, outH);
+        return;
+    }
+
     // Origin offset: canvas pixel (0,0) corresponds to 1-based coord (u0, v0)
     float originU = (float)u0;
     float originV = (float)v0;
@@ -757,6 +771,11 @@ void ExtractAndMatchAndFindHomographyAndWarp(const Image_t *image1, const Image_
     if (outW > maxW_ || outH > maxH_)
     {
         fprintf(stderr, "ExtractAndMatchAndFindHomographyAndWarp: warped image too large (%dx%d), not attempting warp\n", outW, outH);
+        return;
+    }
+    if (outW <= 0 || outH <= 0)
+    {
+        fprintf(stderr, "ExtractAndMatchAndFindHomographyAndWarp: invalid output size %dx%d\n", outW, outH);
         return;
     }
 
