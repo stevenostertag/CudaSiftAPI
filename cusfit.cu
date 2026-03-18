@@ -13,6 +13,7 @@
 #include <cmath>
 #include <algorithm>
 #include <cfloat>
+#include <string>
 #include <omp.h>
 
 static int p_iAlignUp(int a, int b) { return (a % b != 0) ? (a - a % b + b) : a; }
@@ -26,96 +27,94 @@ static __global__ void WarpDualKernel(
     float h00, float h01, float h02, float h10, float h11, float h12, float h20, float h21, float h22);
 
 // ── Thread-local error storage ──────────────────────────
-static thread_local int s_lastErrorLine = 0;
-static thread_local char s_lastErrorFile[256] = {};
-static thread_local char s_lastErrorMessage[256] = {};
-static thread_local bool s_hadError = false;
-
-static void cusift_clear_error()
+struct CusiftErrorState
 {
-    s_hadError = false;
-    s_lastErrorLine = 0;
-    s_lastErrorFile[0] = '\0';
-    s_lastErrorMessage[0] = '\0';
-}
+    bool        had_error = false;
+    int         line      = 0;
+    std::string file;
+    std::string message;
 
-// Parse file/line from __safeCall message format:
-//   "CUDA error in file 'FILE' in line LINE : MSG"
-static void cusift_store_error_from_exception(const char *what)
-{
-    s_hadError = true;
-
-    const char *file_start = strstr(what, "in file '");
-    const char *line_start = strstr(what, "in line ");
-
-    if (file_start && line_start)
+    void clear()
     {
-        file_start += 9; // skip "in file '"
-        const char *file_end = strchr(file_start, '\'');
-        if (file_end)
+        had_error = false;
+        line      = 0;
+        file.clear();
+        message.clear();
+    }
+
+    // Parse file/line from __safeCall message format:
+    //   "CUDA error in file 'FILE' in line LINE : MSG"
+    void store_from_exception(const char *what)
+    {
+        had_error = true;
+        message   = what;
+
+        const char *file_start = strstr(what, "in file '");
+        const char *line_start = strstr(what, "in line ");
+
+        if (file_start && line_start)
         {
-            size_t len = (size_t)(file_end - file_start);
-            if (len > 255)
-                len = 255;
-            memcpy(s_lastErrorFile, file_start, len);
-            s_lastErrorFile[len] = '\0';
+            file_start += 9; // skip "in file '"
+            const char *file_end = strchr(file_start, '\'');
+            if (file_end)
+                file.assign(file_start, file_end);
+            else
+                file.clear();
+
+            line_start += 8; // skip "in line "
+            line = atoi(line_start);
         }
-
-        line_start += 8; // skip "in line "
-        s_lastErrorLine = atoi(line_start);
+        else
+        {
+            file.clear();
+            line = 0;
+        }
     }
-    else
-    {
-        s_lastErrorFile[0] = '\0';
-        s_lastErrorLine = 0;
-    }
+};
 
-    strncpy(s_lastErrorMessage, what, 255);
-    s_lastErrorMessage[255] = '\0';
-}
+static thread_local CusiftErrorState s_error;
 
 // Wrap an API body: clear error state, run fn(), catch and store any exception.
 template <typename F>
 static void cusift_api_guard(F &&fn)
 {
-    cusift_clear_error();
+    s_error.clear();
     try
     {
         fn();
     }
     catch (const std::exception &e)
     {
-        cusift_store_error_from_exception(e.what());
+        s_error.store_from_exception(e.what());
     }
     catch (...)
     {
-        s_hadError = true;
-        s_lastErrorLine = 0;
-        s_lastErrorFile[0] = '\0';
-        strncpy(s_lastErrorMessage, "Unknown exception", 255);
-        s_lastErrorMessage[255] = '\0';
+        s_error.had_error = true;
+        s_error.line      = 0;
+        s_error.file.clear();
+        s_error.message = "Unknown exception";
     }
 }
 
 void CusiftGetLastErrorString(int *line_number, char filename[256], char error_message[256])
 {
     if (line_number)
-        *line_number = s_lastErrorLine;
+        *line_number = s_error.line;
     if (filename)
     {
-        strncpy(filename, s_lastErrorFile, 255);
+        strncpy(filename, s_error.file.c_str(), 255);
         filename[255] = '\0';
     }
     if (error_message)
     {
-        strncpy(error_message, s_lastErrorMessage, 255);
+        strncpy(error_message, s_error.message.c_str(), 255);
         error_message[255] = '\0';
     }
 }
 
 int CusiftHadError()
 {
-    return s_hadError ? 1 : 0;
+    return s_error.had_error ? 1 : 0;
 }
 
 void InitializeCudaSift()
@@ -123,7 +122,7 @@ void InitializeCudaSift()
     cusift_api_guard([&]()
                      {
         int nDevices;
-        cudaGetDeviceCount(&nDevices);
+        safeCall(cudaGetDeviceCount(&nDevices));
         if (!nDevices)
         {
             std::cerr << "No CUDA devices available" << std::endl;
@@ -161,6 +160,10 @@ void ExtractSiftFromImage(const Image_t *image, SiftData *sift_data, const Extra
         {
             std::cerr << "Warning: Requested number of octaves (" << options->num_octaves_ << ") exceeds the maximum possible (" << maxOctaves << ") for the given image size. Reducing to " << maxOctaves << "." << std::endl;
         }
+
+        // Limit num octaves to 7, quietly
+        octaves = std::min(octaves, 7);
+        octaves = std::max(octaves, 3); // Ensure at least 3 octaves
 
         SiftTempMemoryGuard tempMemory(AllocSiftTempMemory(image->width_, image->height_, octaves));
 
@@ -292,6 +295,14 @@ void ExtractAndMatchSift(const Image_t *image1, const Image_t *image2, SiftData 
         int minDim = std::min({image1->width_, image1->height_, image2->width_, image2->height_});
         int maxOctaves = static_cast<int>(std::floor(std::log2(minDim))) - 3;
         int octaves = std::min(extract_options->num_octaves_, maxOctaves);
+        if (extract_options->num_octaves_ > maxOctaves)
+        {
+            std::cerr << "Warning: Requested number of octaves (" << extract_options->num_octaves_ << ") exceeds the maximum possible (" << maxOctaves << ") for the given image size. Reducing to " << maxOctaves << "." << std::endl;
+        }
+
+        // Limit num octaves to 7, quietly
+        octaves = std::min(octaves, 7);
+        octaves = std::max(octaves, 3); // Ensure at least 3 octaves
 
         // Only allocate a single temporary buffer for both images since they won't be processed at the same time
         SiftTempMemoryGuard tempMemory(AllocSiftTempMemory(maxW, maxH, octaves));
@@ -340,6 +351,14 @@ void ExtractAndMatchAndFindHomography(const Image_t *image1, const Image_t *imag
         int minDim = std::min({image1->width_, image1->height_, image2->width_, image2->height_});
         int maxOctaves = static_cast<int>(std::floor(std::log2(minDim))) - 3;
         int octaves = std::min(extract_options->num_octaves_, maxOctaves);
+        if (extract_options->num_octaves_ > maxOctaves)
+        {
+            std::cerr << "Warning: Requested number of octaves (" << extract_options->num_octaves_ << ") exceeds the maximum possible (" << maxOctaves << ") for the given image size. Reducing to " << maxOctaves << "." << std::endl;
+        }
+
+        // Limit num octaves to 7, quietly
+        octaves = std::min(octaves, 7);
+        octaves = std::max(octaves, 3); // Ensure at least 3 octaves
 
         // Only allocate a single temporary buffer for both images since they won't be processed at the same time
         SiftTempMemoryGuard tempMemory(AllocSiftTempMemory(maxW, maxH, octaves));
@@ -618,10 +637,10 @@ void WarpImages(const Image_t *image1, const Image_t *image2, const float *homog
             H10, H11, H12,
             H20, H21, H22);
 
-        cudaDeviceSynchronize();
+        safeCall(cudaDeviceSynchronize());
 
-        cudaMemcpy2D(out1Guard.get(), outW * sizeof(float), d_out1Guard.get(), out1Pitch, outW * sizeof(float), outH, cudaMemcpyDeviceToHost);
-        cudaMemcpy2D(out2Guard.get(), outW * sizeof(float), d_out2Guard.get(), out2Pitch, outW * sizeof(float), outH, cudaMemcpyDeviceToHost);
+        safeCall(cudaMemcpy2D(out1Guard.get(), outW * sizeof(float), d_out1Guard.get(), out1Pitch, outW * sizeof(float), outH, cudaMemcpyDeviceToHost));
+        safeCall(cudaMemcpy2D(out2Guard.get(), outW * sizeof(float), d_out2Guard.get(), out2Pitch, outW * sizeof(float), outH, cudaMemcpyDeviceToHost));
 
         // d_src1Guard, d_src2Guard, d_out1Guard, d_out2Guard freed automatically
     }
@@ -676,6 +695,14 @@ void ExtractAndMatchAndFindHomographyAndWarp(const Image_t *image1, const Image_
     int minDim = std::min({w1, h1, w2, h2});
     int maxOctaves = static_cast<int>(std::floor(std::log2(minDim))) - 3;
     int octaves = std::min(extract_options->num_octaves_, maxOctaves);
+    if (extract_options->num_octaves_ > maxOctaves)
+    {
+        std::cerr << "Warning: Requested number of octaves (" << extract_options->num_octaves_ << ") exceeds the maximum possible (" << maxOctaves << ") for the given image size. Reducing to " << maxOctaves << "." << std::endl;
+    }
+
+    // Limit num octaves to 7, quietly
+    octaves = std::min(octaves, 7);
+    octaves = std::max(octaves, 3); // Ensure at least 3 octaves
 
     SiftTempMemoryGuard tempMemory(AllocSiftTempMemory(maxW, maxH, octaves));
 
@@ -811,7 +838,7 @@ void ExtractAndMatchAndFindHomographyAndWarp(const Image_t *image1, const Image_
         H10, H11, H12,
         H20, H21, H22);
 
-    cudaDeviceSynchronize();
+    safeCall(cudaDeviceSynchronize());
 
     // ── Copy results to host and fill output structs ────────────────────
     size_t nPixels = (size_t)outW * outH;
@@ -823,8 +850,8 @@ void ExtractAndMatchAndFindHomographyAndWarp(const Image_t *image1, const Image_
         return;
     }
 
-    cudaMemcpy2D(out1Guard.get(), outW * sizeof(float), d_out1Guard.get(), out1Stride, outW * sizeof(float), outH, cudaMemcpyDeviceToHost);
-    cudaMemcpy2D(out2Guard.get(), outW * sizeof(float), d_out2Guard.get(), out2Stride, outW * sizeof(float), outH, cudaMemcpyDeviceToHost);
+    safeCall(cudaMemcpy2D(out1Guard.get(), outW * sizeof(float), d_out1Guard.get(), out1Stride, outW * sizeof(float), outH, cudaMemcpyDeviceToHost));
+    safeCall(cudaMemcpy2D(out2Guard.get(), outW * sizeof(float), d_out2Guard.get(), out2Stride, outW * sizeof(float), outH, cudaMemcpyDeviceToHost));
 
     warped_image1->host_img_ = out1Guard.release();
     warped_image1->width_    = outW;

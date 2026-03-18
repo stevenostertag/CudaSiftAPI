@@ -385,6 +385,7 @@ double FindHomography_private(SiftData *data, float *homography, int *numMatches
     *numMatches = 0;
     for (int i = 0; i < 9; i++)
         homography[i] = std::nanf("");
+    homography[8] = 1.0f;
     if (data->d_data == NULL)
         return 0.0f;
     SiftPoint *d_sift = data->d_data;
@@ -448,6 +449,7 @@ double FindHomography_private(SiftData *data, float *homography, int *numMatches
             }
         *numMatches = maxCount;
         safeCall(cudaMemcpy2D(homography, szFl, &d_homo[maxIndex], sizeof(float) * numLoops, szFl, 8, cudaMemcpyDeviceToHost));
+
     }
     // All device and host pointers are freed automatically by RAII guards
     return 0.0;

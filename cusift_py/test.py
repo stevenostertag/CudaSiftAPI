@@ -14,6 +14,13 @@ import numpy as np
 # Ensure the cusift package is importable from this directory
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+dll_path = Path(__file__).resolve().parent.parent / "build" / "Release" / "cusift.dll"
+if not dll_path.is_file():
+    print(f"ERROR: cusift.dll not found at expected location: {dll_path}")
+    print("Please build the cusift library first (e.g. using CMake).")
+    sys.exit(1)
+
+
 from cusift import CuSift, ExtractOptions, HomographyOptions
 
 # -- Paths --------------------------------------------------------------------
@@ -34,7 +41,7 @@ def main() -> None:
     # -- Extract ----------------------------------------------------------
     extract_opts = ExtractOptions(
         thresh=2.0,
-        lowest_scale=8.0,
+        lowest_scale=1.0,
         edge_thresh=10.0,
         init_blur=1.0,
         max_keypoints=32768,
@@ -42,7 +49,11 @@ def main() -> None:
     )
 
     print(f"Extracting SIFT features from {IMG1.name} ...")
-    kp1 = sift.extract(str(IMG1), options=extract_opts)
+    try:
+        kp1 = sift.extract(str(IMG1), options=extract_opts)
+    except Exception as e:
+        print(f"ERROR during extraction from {IMG1.name}: {e}")
+        sys.exit(1)
     print(f"  → {len(kp1)} keypoints")
 
     print(f"Extracting SIFT features from {IMG2.name} ...")
@@ -79,11 +90,11 @@ def main() -> None:
     homo_opts = HomographyOptions(
         num_loops=10000,
         min_score=0.0,
-        max_ambiguity=0.80,
+        max_ambiguity=0.95,
         thresh=5.0,
         improve_num_loops=5,
         improve_min_score=0.0,
-        improve_max_ambiguity=0.80,
+        improve_max_ambiguity=0.95,
         improve_thresh=3.0,
         seed=42,
     )

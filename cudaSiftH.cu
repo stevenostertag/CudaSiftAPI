@@ -37,7 +37,7 @@ struct SiftPointCompare
 void InitCuda(int devNum)
 {
     int nDevices;
-    cudaGetDeviceCount(&nDevices);
+    safeCall(cudaGetDeviceCount(&nDevices));
     if (!nDevices)
     {
         std::cerr << "No CUDA devices available" << std::endl;
@@ -46,7 +46,7 @@ void InitCuda(int devNum)
     devNum = std::min(nDevices - 1, devNum);
     deviceInit(devNum);
     cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, devNum);
+    safeCall(cudaGetDeviceProperties(&prop, devNum));
 }
 
 // Keep
@@ -203,7 +203,7 @@ void ExtractSiftOctave(SiftData *siftData, CudaImage *img, int octave, float thr
     texDesc.normalizedCoords = 0;
     // Create texture object
     cudaTextureObject_t texObj = 0;
-    cudaCreateTextureObject(&texObj, &resDesc, &texDesc, NULL);
+    safeCall(cudaCreateTextureObject(&texObj, &resDesc, &texDesc, NULL));
     TextureObjectGuard texGuard(texObj);
 
     LaplaceMulti(texObj, img, diffImg, octave, ctx);
