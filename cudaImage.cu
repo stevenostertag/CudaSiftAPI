@@ -70,7 +70,7 @@ void CudaImage_Download(CudaImage *img)
 {
     int p = sizeof(float) * img->pitch;
     //if (img->d_data != NULL && img->h_data != NULL)
-        safeCall(cudaMemcpy2D(img->d_data, p, img->h_data, sizeof(float) * img->width, sizeof(float) * img->width, img->height, cudaMemcpyHostToDevice));
+    safeCall(cudaMemcpy2D(img->d_data, p, img->h_data, sizeof(float) * img->width, sizeof(float) * img->width, img->height, cudaMemcpyDefault));
 }
 
 void CudaImage_Readback(CudaImage *img)
