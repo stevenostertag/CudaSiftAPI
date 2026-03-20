@@ -1,222 +1,522 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
-
 #include "cusift.h"
-
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <cmath>
+#include <iostream>
 #include <vector>
-#include <string>
+#include <cmath>
+#include <limits>
+#include <cstdio>
 
-// Load an image as a row-major float array (grayscale).
-// Returns the pixel data via *out_pixels; caller must free() it.
-static bool LoadImageAsFloat(const char* path, float** out_pixels, int* out_w, int* out_h)
+// ── Helpers ─────────────────────────────────────────────
+
+static int load_image_to_grayscale_float(const char* filename, std::vector<float>& image, int& width, int& height)
 {
-    int w, h, channels;
-    unsigned char* raw = stbi_load(path, &w, &h, &channels, 1); // force 1 channel
-    if (!raw)
+    int channels;
+    unsigned char* data = stbi_load(filename, &width, &height, &channels, 1);
+    if (data == nullptr)
     {
-        fprintf(stderr, "Failed to load image: %s\n", path);
-        return false;
-    }
-
-    float* pixels = (float*)malloc(sizeof(float) * w * h);
-    if (!pixels)
-    {
-        stbi_image_free(raw);
-        return false;
-    }
-
-    for (int i = 0; i < w * h; i++)
-        pixels[i] = (float)raw[i];
-
-    stbi_image_free(raw);
-    *out_pixels = pixels;
-    *out_w = w;
-    *out_h = h;
-    return true;
-}
-
-static void PrintHomography(const float* H)
-{
-    printf("Homography:\n");
-    for (int r = 0; r < 3; r++)
-        printf("  [%12.6f %12.6f %12.6f]\n", H[r * 3 + 0], H[r * 3 + 1], H[r * 3 + 2]);
-}
-
-// ── Simple config file parser ───────────────────────────
-// Format: one "key: value" per line. Lines starting with '#' are comments.
-// Supported keys (for ExtractSiftOptions_t):
-//   thresh, lowest_scale, edge_thresh, init_blur, max_keypoints, num_octaves
-// Supported keys (for FindHomographyOptions_t):
-//   num_loops, min_score, max_ambiguity, homo_thresh,
-//   improve_num_loops, improve_min_score, improve_max_ambiguity, improve_thresh, seed
-static bool LoadConfig(const char* path, ExtractSiftOptions_t* eo, FindHomographyOptions_t* ho)
-{
-    FILE* f = fopen(path, "r");
-    if (!f)
-    {
-        fprintf(stderr, "Failed to open config file: %s\n", path);
-        return false;
-    }
-    char line[256];
-    while (fgets(line, sizeof(line), f))
-    {
-        // Skip comments and blank lines
-        if (line[0] == '#' || line[0] == '\n' || line[0] == '\r')
-            continue;
-        char key[128];
-        char valStr[128];
-        if (sscanf(line, "%127[^:]: %127s", key, valStr) != 2)
-            continue;
-
-        // Extract options
-        if      (strcmp(key, "thresh") == 0)         eo->thresh_        = (float)atof(valStr);
-        else if (strcmp(key, "lowest_scale") == 0)    eo->lowest_scale_  = (float)atof(valStr);
-        else if (strcmp(key, "edge_thresh") == 0)     eo->edge_thresh_   = (float)atof(valStr);
-        else if (strcmp(key, "init_blur") == 0)       eo->init_blur_     = (float)atof(valStr);
-        else if (strcmp(key, "max_keypoints") == 0)   eo->max_keypoints_ = atoi(valStr);
-        else if (strcmp(key, "num_octaves") == 0)     eo->num_octaves_   = atoi(valStr);
-        // Homography options
-        else if (strcmp(key, "num_loops") == 0)              ho->num_loops_              = atoi(valStr);
-        else if (strcmp(key, "min_score") == 0)              ho->min_score_              = (float)atof(valStr);
-        else if (strcmp(key, "max_ambiguity") == 0)          ho->max_ambiguity_          = (float)atof(valStr);
-        else if (strcmp(key, "homo_thresh") == 0)            ho->thresh_                 = (float)atof(valStr);
-        else if (strcmp(key, "improve_num_loops") == 0)      ho->improve_num_loops_      = atoi(valStr);
-        else if (strcmp(key, "improve_min_score") == 0)      ho->improve_min_score_      = (float)atof(valStr);
-        else if (strcmp(key, "improve_max_ambiguity") == 0)  ho->improve_max_ambiguity_  = (float)atof(valStr);
-        else if (strcmp(key, "improve_thresh") == 0)         ho->improve_thresh_         = (float)atof(valStr);
-        else if (strcmp(key, "seed") == 0)                   ho->seed_                   = (unsigned int)strtoul(valStr, nullptr, 10);
-        else
-            fprintf(stderr, "Config: unknown key '%s'\n", key);
-    }
-    fclose(f);
-    return true;
-}
-
-int main(int argc, char** argv)
-{
-    const char* img1_path = "data/img1.png";
-    const char* img2_path = "data/img2.png";
-    const char* out1_path = "sift1.json";
-    const char* out2_path = "sift2.json";
-
-    if (argc >= 3)
-    {
-        img1_path = argv[1];
-        img2_path = argv[2];
-    }
-    if (argc >= 5)
-    {
-        out1_path = argv[3];
-        out2_path = argv[4];
-    }
-
-    // ── Extract SIFT features ───────────────────────────
-    ExtractSiftOptions_t extract_opts = {};
-    extract_opts.thresh_        = 0.09f;
-    extract_opts.lowest_scale_  = 0.0f;
-    extract_opts.edge_thresh_   = 10.0f;
-    extract_opts.init_blur_     = 1.0f;
-    extract_opts.max_keypoints_ = 32768;
-    extract_opts.num_octaves_   = 5;
-
-    FindHomographyOptions_t homo_opts = {};
-    homo_opts.num_loops_              = 10000;
-    homo_opts.min_score_              = 0.0f;
-    homo_opts.max_ambiguity_          = 0.80f;
-    homo_opts.thresh_                 = 0.09f;
-    homo_opts.improve_num_loops_      = 5;
-    homo_opts.improve_min_score_      = 0.0f;
-    homo_opts.improve_max_ambiguity_  = 0.80f;
-    homo_opts.improve_thresh_         = 0.07f;
-    homo_opts.seed_                   = 42;
-
-    if (argc >= 6)
-    {
-        // Load config file — values override the defaults above
-        if (!LoadConfig(argv[5], &extract_opts, &homo_opts))
-            fprintf(stderr, "Warning: could not load config '%s', using defaults\n", argv[5]);
-        else
-            printf("Loaded config from %s\n", argv[5]);
-    }
-
-    // ── Initialize CUDA ─────────────────────────────────
-    InitializeCudaSift();
-
-    // ── Load images ─────────────────────────────────────
-    float* pixels1 = nullptr;
-    float* pixels2 = nullptr;
-    int w1, h1, w2, h2;
-
-    if (!LoadImageAsFloat(img1_path, &pixels1, &w1, &h1))
-        return 1;
-    if (!LoadImageAsFloat(img2_path, &pixels2, &w2, &h2))
-    {
-        free(pixels1);
+        std::cerr << "Failed to load image: " << filename << std::endl;
         return 1;
     }
 
-    printf("Image 1: %s (%d x %d)\n", img1_path, w1, h1);
-    printf("Image 2: %s (%d x %d)\n", img2_path, w2, h2);
-
-    Image_t image1 = { pixels1, w1, h1 };
-    Image_t image2 = { pixels2, w2, h2 };
-
-    // Imwarp
-    Image_t warped1, warped2;
-    SiftData sift1, sift2;
-    float homography[9];
-    int num_matches = 0;
-
-    ExtractAndMatchAndFindHomographyAndWarp(&image1, &image2, &sift1, &sift2, homography, &num_matches, &extract_opts, &homo_opts, &warped1, &warped2);
-
-    if (CusiftHadError())
+    image.resize(width * height);
+    for (int i = 0; i < width * height; ++i)
     {
-        char error_message[256];
-        char error_file[256];
-        int error_line = 0;
-        CusiftGetLastErrorString(&error_line, error_file, error_message);
-        fprintf(stderr, "Error: %s\nOccurred in file '%s' at line %d\n", error_message, error_file, error_line);
-        free(pixels1);
-        free(pixels2);
-        return 1;
+        image[i] = static_cast<float>(data[i]); // Keep [0, 255] range for DoG thresholds
     }
 
-    printf("Found %d matches\n", num_matches);
-    PrintHomography(homography);
-
-
-    // Save warped images <img1>_warped.png and <img2>_warped.png
-    std::string warped1_path = std::string(img1_path).substr(0, std::string(img1_path).find_last_of('.')) + "_warped.png";
-    std::string warped2_path = std::string(img2_path).substr(0, std::string(img2_path).find_last_of('.')) + "_warped.png";
-
-    std::vector<uint8_t> warped1_u8(warped1.width_ * warped1.height_);
-    std::vector<uint8_t> warped2_u8(warped2.width_ * warped2.height_);
-
-    for (int i = 0; i < warped1.width_ * warped1.height_; i++)
-        warped1_u8[i] = (uint8_t)std::min(std::max(warped1.host_img_[i], 0.0f), 255.0f);
-    for (int i = 0; i < warped2.width_ * warped2.height_; i++)
-        warped2_u8[i] = (uint8_t)std::min(std::max(warped2.host_img_[i], 0.0f), 255.0f);
-    
-    // Write the uint8_t images to disk
-    stbi_write_png(warped1_path.c_str(), warped1.width_, warped1.height_, 1, warped1_u8.data(), warped1.width_);
-    stbi_write_png(warped2_path.c_str(), warped2.width_, warped2.height_, 1, warped2_u8.data(), warped2.width_);
-
-    free(pixels1);
-    free(pixels2);
-    free(warped1.host_img_);
-    free(warped2.host_img_);
-
-    // Free sift data
-    DeleteSiftData(&sift1);
-    DeleteSiftData(&sift2);
-
-    printf("Done.\n");
+    stbi_image_free(data);
     return 0;
 }
+
+static bool check_error(const char* test_name)
+{
+    if (CusiftHadError())
+    {
+        char error_str[256], filename[256];
+        int line_number;
+        CusiftGetLastErrorString(&line_number, filename, error_str);
+        std::cerr << "  [FAIL] " << test_name << ": " << error_str << std::endl;
+        return true;
+    }
+    return false;
+}
+
+static ExtractSiftOptions_t default_extract_options()
+{
+    ExtractSiftOptions_t opts;
+    opts.thresh_ = 2.0f;
+    opts.lowest_scale_ = 0.0f;
+    opts.highest_scale_ = std::numeric_limits<float>::infinity();
+    opts.edge_thresh_ = 10.0f;
+    opts.init_blur_ = 1.0f;
+    opts.max_keypoints_ = 10000;
+    opts.num_octaves_ = 5;
+    opts.scale_suppression_radius_ = 0.0f;
+    return opts;
+}
+
+static FindHomographyOptions_t default_homography_options()
+{
+    FindHomographyOptions_t opts;
+    opts.num_loops_ = 10000;
+    opts.min_score_ = 0.0f;
+    opts.max_ambiguity_ = 0.80f;
+    opts.thresh_ = 3.0f;
+    opts.improve_num_loops_ = 5;
+    opts.improve_min_score_ = 0.0f;
+    opts.improve_max_ambiguity_ = 0.80f;
+    opts.improve_thresh_ = 2.0f;
+    opts.seed_ = 42;
+    return opts;
+}
+
+static void print_homography(const float* H)
+{
+    for (int r = 0; r < 3; r++)
+        std::cout << "    [" << H[r*3+0] << "  " << H[r*3+1] << "  " << H[r*3+2] << "]" << std::endl;
+}
+
+static bool homography_is_valid(const float* H)
+{
+    for (int i = 0; i < 9; i++)
+        if (!std::isfinite(H[i])) return false;
+    return true;
+}
+
+// ── Test: ExtractSiftFromImage ──────────────────────────
+
+static bool test_extract(const Image_t& im1, const Image_t& im2)
+{
+    std::cout << "[TEST] ExtractSiftFromImage" << std::endl;
+
+    SiftData sift_data1, sift_data2;
+    ExtractSiftOptions_t options = default_extract_options();
+
+    ExtractSiftFromImage(&im1, &sift_data1, &options);
+    if (check_error("ExtractSiftFromImage (image1)")) return false;
+
+    ExtractSiftFromImage(&im2, &sift_data2, &options);
+    if (check_error("ExtractSiftFromImage (image2)")) return false;
+
+    std::cout << "  Image 1: " << sift_data1.numPts << " keypoints" << std::endl;
+    std::cout << "  Image 2: " << sift_data2.numPts << " keypoints" << std::endl;
+
+    bool pass = sift_data1.numPts > 0 && sift_data2.numPts > 0;
+    std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
+
+    DeleteSiftData(&sift_data1);
+    DeleteSiftData(&sift_data2);
+    return pass;
+}
+
+// ── Test: MatchSiftData ─────────────────────────────────
+
+static bool test_match(const Image_t& im1, const Image_t& im2)
+{
+    std::cout << "[TEST] MatchSiftData" << std::endl;
+
+    SiftData sift_data1, sift_data2;
+    ExtractSiftOptions_t options = default_extract_options();
+
+    ExtractSiftFromImage(&im1, &sift_data1, &options);
+    ExtractSiftFromImage(&im2, &sift_data2, &options);
+    if (check_error("Extract (setup)")) { DeleteSiftData(&sift_data1); DeleteSiftData(&sift_data2); return false; }
+
+    MatchSiftData(&sift_data1, &sift_data2);
+    if (check_error("MatchSiftData")) { DeleteSiftData(&sift_data1); DeleteSiftData(&sift_data2); return false; }
+
+    int matched = 0;
+    for (int i = 0; i < sift_data1.numPts; i++)
+        if (sift_data1.h_data[i].match >= 0)
+            matched++;
+
+    std::cout << "  Matched " << matched << " / " << sift_data1.numPts << " keypoints" << std::endl;
+
+    bool pass = matched > 0;
+    std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
+
+    DeleteSiftData(&sift_data1);
+    DeleteSiftData(&sift_data2);
+    return pass;
+}
+
+// ── Test: FindHomography ────────────────────────────────
+
+static bool test_find_homography(const Image_t& im1, const Image_t& im2)
+{
+    std::cout << "[TEST] FindHomography" << std::endl;
+
+    SiftData sift_data1, sift_data2;
+    ExtractSiftOptions_t eo = default_extract_options();
+    FindHomographyOptions_t ho = default_homography_options();
+
+    ExtractSiftFromImage(&im1, &sift_data1, &eo);
+    ExtractSiftFromImage(&im2, &sift_data2, &eo);
+    MatchSiftData(&sift_data1, &sift_data2);
+    if (check_error("Extract+Match (setup)")) { DeleteSiftData(&sift_data1); DeleteSiftData(&sift_data2); return false; }
+
+    float homography[9];
+    int num_matches = 0;
+    FindHomography(&sift_data1, homography, &num_matches, &ho);
+    if (check_error("FindHomography")) { DeleteSiftData(&sift_data1); DeleteSiftData(&sift_data2); return false; }
+
+    std::cout << "  Inliers: " << num_matches << std::endl;
+    print_homography(homography);
+
+    bool pass = num_matches > 0 && homography_is_valid(homography);
+    std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
+
+    DeleteSiftData(&sift_data1);
+    DeleteSiftData(&sift_data2);
+    return pass;
+}
+
+// ── Test: WarpImages (CPU path) ─────────────────────────
+
+static bool test_warp_images_cpu(const Image_t& im1, const Image_t& im2)
+{
+    std::cout << "[TEST] WarpImages (CPU)" << std::endl;
+
+    SiftData sd1, sd2;
+    ExtractSiftOptions_t eo = default_extract_options();
+    FindHomographyOptions_t ho = default_homography_options();
+
+    ExtractSiftFromImage(&im1, &sd1, &eo);
+    ExtractSiftFromImage(&im2, &sd2, &eo);
+    MatchSiftData(&sd1, &sd2);
+
+    float H[9];
+    int nm = 0;
+    FindHomography(&sd1, H, &nm, &ho);
+    if (check_error("setup") || !homography_is_valid(H))
+    {
+        std::cout << "  [SKIP] no valid homography" << std::endl;
+        DeleteSiftData(&sd1); DeleteSiftData(&sd2);
+        return false;
+    }
+
+    Image_t w1 = {}, w2 = {};
+    WarpImages(&im1, &im2, H, &w1, &w2, false);
+    if (check_error("WarpImages (CPU)")) { DeleteSiftData(&sd1); DeleteSiftData(&sd2); return false; }
+
+    std::cout << "  Warped size: " << w1.width_ << "x" << w1.height_ << std::endl;
+
+    bool pass = w1.host_img_ != nullptr && w2.host_img_ != nullptr && w1.width_ > 0 && w1.height_ > 0;
+    std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
+
+    FreeImage(&w1);
+    FreeImage(&w2);
+    DeleteSiftData(&sd1);
+    DeleteSiftData(&sd2);
+    return pass;
+}
+
+// ── Test: WarpImages (GPU path) ─────────────────────────
+
+static bool test_warp_images_gpu(const Image_t& im1, const Image_t& im2)
+{
+    std::cout << "[TEST] WarpImages (GPU)" << std::endl;
+
+    SiftData sd1, sd2;
+    ExtractSiftOptions_t eo = default_extract_options();
+    FindHomographyOptions_t ho = default_homography_options();
+
+    ExtractSiftFromImage(&im1, &sd1, &eo);
+    ExtractSiftFromImage(&im2, &sd2, &eo);
+    MatchSiftData(&sd1, &sd2);
+
+    float H[9];
+    int nm = 0;
+    FindHomography(&sd1, H, &nm, &ho);
+    if (check_error("setup") || !homography_is_valid(H))
+    {
+        std::cout << "  [SKIP] no valid homography" << std::endl;
+        DeleteSiftData(&sd1); DeleteSiftData(&sd2);
+        return false;
+    }
+
+    Image_t w1 = {}, w2 = {};
+    WarpImages(&im1, &im2, H, &w1, &w2, true);
+    if (check_error("WarpImages (GPU)")) { DeleteSiftData(&sd1); DeleteSiftData(&sd2); return false; }
+
+    std::cout << "  Warped size: " << w1.width_ << "x" << w1.height_ << std::endl;
+
+    bool pass = w1.host_img_ != nullptr && w2.host_img_ != nullptr && w1.width_ > 0 && w1.height_ > 0;
+    std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
+
+    FreeImage(&w1);
+    FreeImage(&w2);
+    DeleteSiftData(&sd1);
+    DeleteSiftData(&sd2);
+    return pass;
+}
+
+// ── Test: WarpImages_GPU (returns device memory) ────────
+
+static bool test_warp_images_gpu_strided(const Image_t& im1, const Image_t& im2)
+{
+    std::cout << "[TEST] WarpImages_GPU" << std::endl;
+
+    SiftData sd1, sd2;
+    ExtractSiftOptions_t eo = default_extract_options();
+    FindHomographyOptions_t ho = default_homography_options();
+
+    ExtractSiftFromImage(&im1, &sd1, &eo);
+    ExtractSiftFromImage(&im2, &sd2, &eo);
+    MatchSiftData(&sd1, &sd2);
+
+    float H[9];
+    int nm = 0;
+    FindHomography(&sd1, H, &nm, &ho);
+    if (check_error("setup") || !homography_is_valid(H))
+    {
+        std::cout << "  [SKIP] no valid homography" << std::endl;
+        DeleteSiftData(&sd1); DeleteSiftData(&sd2);
+        return false;
+    }
+
+    ImageStrided_t w1 = {}, w2 = {};
+    WarpImages_GPU(&im1, &im2, H, &w1, &w2);
+    if (check_error("WarpImages_GPU")) { DeleteSiftData(&sd1); DeleteSiftData(&sd2); return false; }
+
+    std::cout << "  Warped size: " << w1.width_ << "x" << w1.height_ << ", stride=" << w1.stride_ << std::endl;
+
+    bool pass = w1.strided_img_ != nullptr && w2.strided_img_ != nullptr
+             && w1.width_ > 0 && w1.height_ > 0 && w1.stride_ > 0;
+    std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
+
+    FreeImage_GPU(&w1);
+    FreeImage_GPU(&w2);
+    DeleteSiftData(&sd1);
+    DeleteSiftData(&sd2);
+    return pass;
+}
+
+// ── Test: SaveSiftData ──────────────────────────────────
+
+static bool test_save_sift_data(const Image_t& im1)
+{
+    std::cout << "[TEST] SaveSiftData" << std::endl;
+
+    SiftData sd;
+    ExtractSiftOptions_t eo = default_extract_options();
+
+    ExtractSiftFromImage(&im1, &sd, &eo);
+    if (check_error("Extract (setup)")) { DeleteSiftData(&sd); return false; }
+
+    const char* tmp_file = "test_sift_output.json";
+    SaveSiftData(tmp_file, &sd);
+
+    FILE* f = fopen(tmp_file, "r");
+    bool pass = (f != nullptr);
+    if (f)
+    {
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        fclose(f);
+        std::cout << "  Wrote " << sz << " bytes to " << tmp_file << std::endl;
+        pass = sz > 0;
+        remove(tmp_file);
+    }
+    else
+    {
+        std::cerr << "  File was not created" << std::endl;
+    }
+
+    std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
+
+    DeleteSiftData(&sd);
+    return pass;
+}
+
+// ── Test: ExtractAndMatchSift ───────────────────────────
+
+static bool test_extract_and_match(const Image_t& im1, const Image_t& im2)
+{
+    std::cout << "[TEST] ExtractAndMatchSift" << std::endl;
+
+    SiftData sd1, sd2;
+    ExtractSiftOptions_t eo = default_extract_options();
+
+    ExtractAndMatchSift(&im1, &im2, &sd1, &sd2, &eo);
+    if (check_error("ExtractAndMatchSift")) { DeleteSiftData(&sd1); DeleteSiftData(&sd2); return false; }
+
+    int matched = 0;
+    for (int i = 0; i < sd1.numPts; i++)
+        if (sd1.h_data[i].match >= 0)
+            matched++;
+
+    std::cout << "  Image 1: " << sd1.numPts << " keypoints, Image 2: " << sd2.numPts << " keypoints" << std::endl;
+    std::cout << "  Matched: " << matched << std::endl;
+
+    bool pass = sd1.numPts > 0 && sd2.numPts > 0 && matched > 0;
+    std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
+
+    DeleteSiftData(&sd1);
+    DeleteSiftData(&sd2);
+    return pass;
+}
+
+// ── Test: ExtractAndMatchAndFindHomography ───────────────
+
+static bool test_extract_match_homography(const Image_t& im1, const Image_t& im2)
+{
+    std::cout << "[TEST] ExtractAndMatchAndFindHomography" << std::endl;
+
+    SiftData sd1, sd2;
+    ExtractSiftOptions_t eo = default_extract_options();
+    FindHomographyOptions_t ho = default_homography_options();
+
+    float H[9];
+    int nm = 0;
+
+    ExtractAndMatchAndFindHomography(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho);
+    if (check_error("ExtractAndMatchAndFindHomography")) { DeleteSiftData(&sd1); DeleteSiftData(&sd2); return false; }
+
+    std::cout << "  Inliers: " << nm << std::endl;
+    print_homography(H);
+
+    bool pass = nm > 0 && homography_is_valid(H);
+    std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
+
+    DeleteSiftData(&sd1);
+    DeleteSiftData(&sd2);
+    return pass;
+}
+
+// ── Test: ExtractAndMatchAndFindHomographyAndWarp ────────
+
+static bool test_extract_match_homography_warp(const Image_t& im1, const Image_t& im2)
+{
+    std::cout << "[TEST] ExtractAndMatchAndFindHomographyAndWarp" << std::endl;
+
+    SiftData sd1, sd2;
+    ExtractSiftOptions_t eo = default_extract_options();
+    FindHomographyOptions_t ho = default_homography_options();
+
+    float H[9];
+    int nm = 0;
+    Image_t w1 = {}, w2 = {};
+
+    ExtractAndMatchAndFindHomographyAndWarp(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho, &w1, &w2);
+    if (check_error("ExtractAndMatchAndFindHomographyAndWarp"))
+    {
+        DeleteSiftData(&sd1); DeleteSiftData(&sd2);
+        FreeImage(&w1); FreeImage(&w2);
+        return false;
+    }
+
+    std::cout << "  Inliers: " << nm << std::endl;
+    std::cout << "  Warped size: " << w1.width_ << "x" << w1.height_ << std::endl;
+    print_homography(H);
+
+    bool pass = nm > 0 && homography_is_valid(H)
+             && w1.host_img_ != nullptr && w2.host_img_ != nullptr
+             && w1.width_ > 0 && w1.height_ > 0;
+    std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
+
+    FreeImage(&w1);
+    FreeImage(&w2);
+    DeleteSiftData(&sd1);
+    DeleteSiftData(&sd2);
+    return pass;
+}
+
+// ── Test: ExtractAndMatchAndFindHomographyAndWarp_GPU ────
+
+static bool test_extract_match_homography_warp_gpu(const Image_t& im1, const Image_t& im2)
+{
+    std::cout << "[TEST] ExtractAndMatchAndFindHomographyAndWarp_GPU" << std::endl;
+
+    SiftData sd1, sd2;
+    ExtractSiftOptions_t eo = default_extract_options();
+    FindHomographyOptions_t ho = default_homography_options();
+
+    float H[9];
+    int nm = 0;
+    ImageStrided_t w1 = {}, w2 = {};
+
+    ExtractAndMatchAndFindHomographyAndWarp_GPU(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho, &w1, &w2);
+    if (check_error("ExtractAndMatchAndFindHomographyAndWarp_GPU"))
+    {
+        DeleteSiftData(&sd1); DeleteSiftData(&sd2);
+        FreeImage_GPU(&w1); FreeImage_GPU(&w2);
+        return false;
+    }
+
+    std::cout << "  Inliers: " << nm << std::endl;
+    std::cout << "  Warped size: " << w1.width_ << "x" << w1.height_ << ", stride=" << w1.stride_ << std::endl;
+    print_homography(H);
+
+    bool pass = nm > 0 && homography_is_valid(H)
+             && w1.strided_img_ != nullptr && w2.strided_img_ != nullptr
+             && w1.width_ > 0 && w1.height_ > 0 && w1.stride_ > 0;
+    std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
+
+    FreeImage_GPU(&w1);
+    FreeImage_GPU(&w2);
+    DeleteSiftData(&sd1);
+    DeleteSiftData(&sd2);
+    return pass;
+}
+
+// ── Main ────────────────────────────────────────────────
+
+int main(int argc, char* argv[])
+{
+    if (argc != 3)
+    {
+        std::cerr << "Usage: " << argv[0] << " <image1> <image2>" << std::endl;
+        return 1;
+    }
+
+    const char* image1_path = argv[1];
+    const char* image2_path = argv[2];
+
+    std::vector<float> image1, image2;
+    int width1, height1, width2, height2;
+
+    if (load_image_to_grayscale_float(image1_path, image1, width1, height1) != 0)
+        return 1;
+    if (load_image_to_grayscale_float(image2_path, image2, width2, height2) != 0)
+        return 1;
+
+    std::cout << "Image 1: " << image1_path << " (" << width1 << "x" << height1 << ")" << std::endl;
+    std::cout << "Image 2: " << image2_path << " (" << width2 << "x" << height2 << ")" << std::endl;
+    std::cout << std::endl;
+
+    Image_t im1 = { image1.data(), width1, height1 };
+    Image_t im2 = { image2.data(), width2, height2 };
+
+    InitializeCudaSift();
+
+    int passed = 0, failed = 0, total = 0;
+
+    auto run = [&](bool result) { total++; result ? passed++ : failed++; std::cout << std::endl; };
+
+    run(test_extract(im1, im2));
+    run(test_match(im1, im2));
+    run(test_find_homography(im1, im2));
+    run(test_warp_images_cpu(im1, im2));
+    run(test_warp_images_gpu(im1, im2));
+    run(test_warp_images_gpu_strided(im1, im2));
+    run(test_save_sift_data(im1));
+    run(test_extract_and_match(im1, im2));
+    run(test_extract_match_homography(im1, im2));
+    run(test_extract_match_homography_warp(im1, im2));
+    run(test_extract_match_homography_warp_gpu(im1, im2));
+
+    std::cout << "========================================" << std::endl;
+    std::cout << "Results: " << passed << " passed, " << failed << " failed, " << total << " total" << std::endl;
+
+    return failed > 0 ? 1 : 0;
+}
+
+
+
+
+
+
+

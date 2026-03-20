@@ -38,6 +38,7 @@
  * - FindHomography()
  * - WarpImages()
  * - DeleteSiftData()
+ * - FreeImage()
  * - CusiftGetLastErrorString()
  * - CusiftHadError()
  * - SaveSiftData()
@@ -131,6 +132,8 @@ extern "C"
 
     /**
      * @brief A grayscale image stored as a contiguous float buffer.
+     * The host image can be on the CPU or GPU. The library functions will handle copying to/from the device as needed.
+     * We will not modify the input image data, ever.
      */
     typedef struct
     {
@@ -138,6 +141,21 @@ extern "C"
         int width_;        /**< Image width in pixels. */
         int height_;       /**< Image height in pixels. */
     } Image_t;
+
+    /**
+     * @brief A grayscale image stored as a contiguous float buffer with padding (stride) between rows.
+     * This is an output structure used for the warping operations. If the caller wants to keep the
+     * warped images on the GPU, they can WarpImages_GPU(), which expects this structure.
+     * 
+     */
+    typedef struct 
+    {
+        float *strided_img_;    /**< Pointer to row-major float32 pixel data with padding (for GPU warping). */
+        int width_;             /**< Image width in pixels. */
+        int height_;            /**< Image height in pixels. */
+        size_t stride_;         /**< Stride in bytes between rows (for GPU warping). */
+    } ImageStrided_t;
+    
 
     /**
      * @brief Options controlling SIFT feature extraction.
@@ -290,6 +308,20 @@ extern "C"
     CUSIFT_API void WarpImages(const Image_t *image1, const Image_t *image2, const float *homography, Image_t *warped_image1, Image_t *warped_image2, bool useGPU);
 
     /**
+     * @brief Given the computed homography, warp the input images to align them using GPU acceleration.
+     * The warped images are returned in the 'warped_image1' and 'warped_image2' output parameters as ImageStrided_t structures, which contain pointers to GPU memory.
+     * The caller is responsible for ensuring that the input images and homography are valid before calling this function, and for freeing any resources associated
+     * with the warped images when done using FreeImage_GPU() or cudaFree() as appropriate.
+     * 
+     * @param image1 Pointer to the first input image.
+     * @param image2 Pointer to the second input image.
+     * @param homography Pointer to a 3x3 matrix in row-major order representing the homography transformation.
+     * @param warped_image1 Pointer to the ImageStrided_t structure where the warped first image will be stored.
+     * @param warped_image2 Pointer to the ImageStrided_t structure where the warped second image will be stored.
+     */
+    CUSIFT_API void WarpImages_GPU(const Image_t *image1, const Image_t *image2, const float *homography, ImageStrided_t *warped_image1, ImageStrided_t *warped_image2);
+
+    /**
      * @brief Delete a SiftData structure and free all associated resources. After calling this function, the SiftData pointer should not be used again unless it is re-initialized. The caller is responsible for ensuring that the SiftData structure was properly initialized and contains valid data before calling this function.
      *
      * @param sift_data Pointer to the SiftData structure to be deleted.
@@ -301,12 +333,24 @@ extern "C"
      *
      * This is intended for images whose @c host_img_ was allocated by the
      * library (e.g. the warped output images from WarpImages()).  After
-     * this call <tt>image->host_img_</tt> is set to NULL and the dimensions
+     * this call image->host_img_ is set to NULL and the dimensions
      * are zeroed.
      *
      * @param image Pointer to the Image_t whose pixel buffer should be freed.
      */
     CUSIFT_API void FreeImage(Image_t *image);
+
+    /**
+     * @brief Free the pixel buffer owned by an ImageStrided_t structure.
+     *
+     * This is intended for images whose @c strided_img_ was allocated by the
+     * library (e.g. the warped output images from WarpImages_GPU()).  After
+     * this call image->strided_img_ is set to NULL and the dimensions
+     * are zeroed.
+     *
+     * @param image Pointer to the ImageStrided_t whose pixel buffer should be freed.
+     */
+    CUSIFT_API void FreeImage_GPU(ImageStrided_t *image);
 
     /**
      * @brief Save SIFT features from a SiftData structure to a json file.
@@ -357,6 +401,25 @@ extern "C"
      * @param warped_image2 Pointer to the Image_t structure where the warped second image will be stored. The caller is responsible for freeing any resources associated with the warped images when done.
      */
     CUSIFT_API void ExtractAndMatchAndFindHomographyAndWarp(const Image_t *image1, const Image_t *image2, SiftData *sift_data1, SiftData *sift_data2, float *homography, int *num_matches, const ExtractSiftOptions_t *extract_options, const FindHomographyOptions_t *homography_options, Image_t *warped_image1, Image_t *warped_image2);
+
+    /**
+     * @brief Full pipeline: Extract Sift features from two images, match them, find a homography transformation between the matched features, and warp the input images to align them using GPU acceleration.
+     * This is a convenience function that combines ExtractSiftFromImage(), MatchSiftData(), FindHomography(), and WarpImages_GPU() into a single call.
+     * The caller is responsible for freeing the SiftData structures using DeleteSiftData() when done, and for freeing any resources associated with the warped images when done using FreeImage_GPU() or cudaFree() as appropriate.
+     * 
+     * @param image1 Pointer to the first input image.
+     * @param image2 Pointer to the second input image.
+     * @param sift_data1 Pointer to the SiftData structure where the extracted features from the first image will be stored.
+     * @param sift_data2 Pointer to the SiftData structure where the extracted features from the second image will be stored.
+     * @param homography Pointer to a 3x3 matrix in row-major order where the computed homography will be stored.
+     * @param num_matches Pointer to an integer where the number of matches used to compute the homography will be stored.
+     * @param extract_options Pointer to the ExtractSiftOptions_t structure containing parameters for SIFT feature extraction. The same options will be used for both images.
+     * @param homography_options Pointer to the FindHomographyOptions_t structure containing parameters for homography computation.
+     * @param warped_image1 Pointer to the ImageStrided_t structure where the warped first image will be stored. The caller is responsible for freeing any resources associated with the warped images when done.
+     * @param warped_image2 Pointer to the ImageStrided_t structure where the warped second image will be stored. The caller is responsible for freeing any resources associated with the warped images when done.
+     * 
+     */
+    CUSIFT_API void ExtractAndMatchAndFindHomographyAndWarp_GPU(const Image_t *image1, const Image_t *image2, SiftData *sift_data1, SiftData *sift_data2, float *homography, int *num_matches, const ExtractSiftOptions_t *extract_options, const FindHomographyOptions_t *homography_options, ImageStrided_t *warped_image1, ImageStrided_t *warped_image2);
 
 #ifdef __cplusplus
 }
