@@ -17,7 +17,7 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 option(CUSIFT_BUILD_SHARED   "Build cusift as a shared library instead of static" OFF)
 
 # ── OpenMP ───────────────────────────────────────────────
-find_package(OpenMP)
+find_package(OpenMP COMPONENTS C CXX)
 
 # ── CUDA architecture ───────────────────────────────────
 # Override with -DCMAKE_CUDA_ARCHITECTURES="75;86" etc.
@@ -85,6 +85,12 @@ endif()
 # Link OpenMP if available
 if(OpenMP_CXX_FOUND)
   target_link_libraries(cusift PRIVATE OpenMP::OpenMP_CXX)
+  # nvcc doesn't understand OpenMP flags directly; forward them to the host compiler
+  if(NOT MSVC AND OpenMP_CXX_FLAGS)
+    target_compile_options(cusift PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=${OpenMP_CXX_FLAGS}>
+    )
+  endif()
 endif()
 
 # ── Demo executable ──────────────────────────────────────
