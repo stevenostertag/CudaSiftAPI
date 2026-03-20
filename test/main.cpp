@@ -462,6 +462,69 @@ static bool test_extract_match_homography_warp_gpu(const Image_t& im1, const Ima
     return pass;
 }
 
+// ── Test: VRAM estimation functions ─────────────────────
+
+static bool test_estimate_vram(const Image_t& im1, const Image_t& im2)
+{
+    std::cout << "[TEST] VRAM Estimation Functions" << std::endl;
+
+    ExtractSiftOptions_t eo = default_extract_options();
+    FindHomographyOptions_t ho = default_homography_options();
+
+    bool pass = true;
+
+    // EstimateVramExtractSift
+    size_t extract_vram = EstimateVramExtractSift(im1.width_, im1.height_, &eo);
+    std::cout << "  EstimateVramExtractSift(" << im1.width_ << "x" << im1.height_ << "): "
+              << extract_vram << " bytes (" << (extract_vram / (1024.0 * 1024.0)) << " MB)" << std::endl;
+    if (extract_vram == 0) { std::cerr << "  [FAIL] extract estimate is 0" << std::endl; pass = false; }
+
+    // EstimateVramMatchSift
+    size_t match_vram = EstimateVramMatchSift(eo.max_keypoints_, eo.max_keypoints_);
+    std::cout << "  EstimateVramMatchSift(" << eo.max_keypoints_ << ", " << eo.max_keypoints_ << "): "
+              << match_vram << " bytes (" << (match_vram / (1024.0 * 1024.0)) << " MB)" << std::endl;
+    if (match_vram == 0) { std::cerr << "  [FAIL] match estimate is 0" << std::endl; pass = false; }
+
+    // EstimateVramFindHomography
+    size_t homo_vram = EstimateVramFindHomography(eo.max_keypoints_, &ho);
+    std::cout << "  EstimateVramFindHomography(" << eo.max_keypoints_ << "): "
+              << homo_vram << " bytes (" << (homo_vram / (1024.0 * 1024.0)) << " MB)" << std::endl;
+    if (homo_vram == 0) { std::cerr << "  [FAIL] homography estimate is 0" << std::endl; pass = false; }
+
+    // EstimateVramWarpImages
+    size_t warp_vram = EstimateVramWarpImages(im1.width_, im1.height_, im2.width_, im2.height_);
+    std::cout << "  EstimateVramWarpImages(" << im1.width_ << "x" << im1.height_
+              << ", " << im2.width_ << "x" << im2.height_ << "): "
+              << warp_vram << " bytes (" << (warp_vram / (1024.0 * 1024.0)) << " MB)" << std::endl;
+    if (warp_vram == 0) { std::cerr << "  [FAIL] warp estimate is 0" << std::endl; pass = false; }
+
+    // EstimateVramFullPipeline
+    size_t full_vram = EstimateVramFullPipeline(im1.width_, im1.height_, im2.width_, im2.height_, &eo, &ho);
+    std::cout << "  EstimateVramFullPipeline: "
+              << full_vram << " bytes (" << (full_vram / (1024.0 * 1024.0)) << " MB)" << std::endl;
+    if (full_vram == 0) { std::cerr << "  [FAIL] full pipeline estimate is 0" << std::endl; pass = false; }
+
+    // Sanity: full pipeline should be >= extraction (since extraction is typically the peak)
+    if (full_vram < extract_vram)
+    {
+        std::cerr << "  [FAIL] full pipeline estimate (" << full_vram
+                  << ") < extract estimate (" << extract_vram << ")" << std::endl;
+        pass = false;
+    }
+
+    // Sanity: match estimate should equal 2 * sizeof(SiftPoint) * max_keypoints
+    size_t expected_match = 2 * sizeof(SiftPoint) * eo.max_keypoints_;
+    if (match_vram != expected_match)
+    {
+        std::cerr << "  [FAIL] match estimate (" << match_vram
+                  << ") != expected (" << expected_match << ")" << std::endl;
+        pass = false;
+    }
+
+    std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
+    return pass;
+}
+
 // ── Main ────────────────────────────────────────────────
 
 int main(int argc, char* argv[])
@@ -507,6 +570,7 @@ int main(int argc, char* argv[])
     run(test_extract_match_homography(im1, im2));
     run(test_extract_match_homography_warp(im1, im2));
     run(test_extract_match_homography_warp_gpu(im1, im2));
+    run(test_estimate_vram(im1, im2));
 
     std::cout << "========================================" << std::endl;
     std::cout << "Results: " << passed << " passed, " << failed << " failed, " << total << " total" << std::endl;

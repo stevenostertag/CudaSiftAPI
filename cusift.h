@@ -37,6 +37,7 @@
  * - MatchSiftData()
  * - FindHomography()
  * - WarpImages()
+ * - WarpImages_GPU()
  * - DeleteSiftData()
  * - FreeImage()
  * - CusiftGetLastErrorString()
@@ -45,7 +46,13 @@
  * - ExtractAndMatchSift()
  * - ExtractAndMatchAndFindHomography()
  * - ExtractAndMatchAndFindHomographyAndWarp()
- *
+ * - ExtractAndMatchAndFindHomographyAndWarp_GPU()
+ * - EstimateVramExtractSift()
+ * - EstimateVramMatchSift()
+ * - EstimateVramFindHomography()
+ * - EstimateVramWarpImages()
+ * - EstimateVramFullPipeline()
+ * 
  */
 
 
@@ -420,6 +427,79 @@ extern "C"
      * 
      */
     CUSIFT_API void ExtractAndMatchAndFindHomographyAndWarp_GPU(const Image_t *image1, const Image_t *image2, SiftData *sift_data1, SiftData *sift_data2, float *homography, int *num_matches, const ExtractSiftOptions_t *extract_options, const FindHomographyOptions_t *homography_options, ImageStrided_t *warped_image1, ImageStrided_t *warped_image2);
+
+    // ── VRAM estimation functions ────────────────────────────────────────
+
+    /**
+     * @brief Estimate the peak GPU VRAM needed by ExtractSiftFromImage().
+     *
+     * Accounts for the SiftData device buffer, the CudaImage device copy,
+     * the scale-space / Laplace pyramid temporary memory, and the small
+     * per-call context buffers.
+     *
+     * @param image_width   Width of the input image in pixels.
+     * @param image_height  Height of the input image in pixels.
+     * @param options       Extraction options (max_keypoints_ and num_octaves_ are used).
+     * @return Estimated peak VRAM in bytes.
+     */
+    CUSIFT_API size_t EstimateVramExtractSift(int image_width, int image_height, const ExtractSiftOptions_t *options);
+
+    /**
+     * @brief Estimate the GPU VRAM occupied by two SiftData arrays during matching.
+     *
+     * MatchSiftData itself allocates no extra device memory; this returns the
+     * size of the two pre-existing device-side keypoint buffers.
+     *
+     * @param max_keypoints1 Maximum keypoints allocated for the first SiftData.
+     * @param max_keypoints2 Maximum keypoints allocated for the second SiftData.
+     * @return Estimated VRAM in bytes.
+     */
+    CUSIFT_API size_t EstimateVramMatchSift(int max_keypoints1, int max_keypoints2);
+
+    /**
+     * @brief Estimate the GPU VRAM needed by FindHomography().
+     *
+     * Accounts for the temporary coordinate, random-sample, and homography
+     * candidate buffers allocated during RANSAC, plus the pre-existing
+     * SiftData device buffer.
+     *
+     * @param max_keypoints Maximum number of keypoints (worst-case numPts).
+     * @param options       Homography options (num_loops_ is used).
+     * @return Estimated VRAM in bytes.
+     */
+    CUSIFT_API size_t EstimateVramFindHomography(int max_keypoints, const FindHomographyOptions_t *options);
+
+    /**
+     * @brief Estimate the GPU VRAM needed by WarpImages() (GPU path) or WarpImages_GPU().
+     *
+     * Because the output canvas size depends on the homography (which is
+     * unknown before extraction), this function assumes worst-case output
+     * dimensions of 2x the larger input dimension in each axis.
+     *
+     * @param image_width1   Width of the first input image.
+     * @param image_height1  Height of the first input image.
+     * @param image_width2   Width of the second input image.
+     * @param image_height2  Height of the second input image.
+     * @return Estimated peak VRAM in bytes.
+     */
+    CUSIFT_API size_t EstimateVramWarpImages(int image_width1, int image_height1, int image_width2, int image_height2);
+
+    /**
+     * @brief Estimate the peak GPU VRAM across the full extract-match-homography-warp pipeline.
+     *
+     * The peak typically occurs during SIFT extraction (due to the
+     * scale-space pyramid).  This function returns the maximum of all
+     * individual stage estimates, accounting for buffers that coexist.
+     *
+     * @param image_width1       Width of the first input image.
+     * @param image_height1      Height of the first input image.
+     * @param image_width2       Width of the second input image.
+     * @param image_height2      Height of the second input image.
+     * @param extract_options    Extraction options.
+     * @param homography_options Homography options.
+     * @return Estimated peak VRAM in bytes.
+     */
+    CUSIFT_API size_t EstimateVramFullPipeline(int image_width1, int image_height1, int image_width2, int image_height2, const ExtractSiftOptions_t *extract_options, const FindHomographyOptions_t *homography_options);
 
 #ifdef __cplusplus
 }

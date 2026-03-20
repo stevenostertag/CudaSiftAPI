@@ -1218,3 +1218,137 @@ void ExtractAndMatchAndFindHomographyAndWarp_GPU(const Image_t *image1, const Im
         warped_image2->stride_ = out2Stride;
     }); // end cusift_api_guard for ExtractAndMatchAndFindHomographyAndWarp_GPU
 }
+
+// ── VRAM estimation helpers ─────────────────────────────────────────────────
+
+static size_t estimatePyramidBytes(int width, int height, int numOctaves)
+{
+    const int nd = 5 + 3; // NUM_SCALES + 3
+    int w = width;
+    int h = height;
+    int p = p_iAlignUp(w, 128);
+    long long size    = (long long)h * p;       // image buffers
+    long long sizeTmp = (long long)nd * h * p;  // laplace buffers
+    for (int i = 0; i < numOctaves; i++)
+    {
+        w /= 2;
+        h /= 2;
+        p = p_iAlignUp(w, 128);
+        size    += (long long)h * p;
+        sizeTmp += (long long)nd * h * p;
+    }
+    size += sizeTmp;
+    // Actual allocation: cudaMallocPitch with width=4096, height=(size+4095)/4096
+    long long rows = (size + 4095) / 4096;
+    return (size_t)(rows * 4096 * sizeof(float));
+}
+
+static size_t estimateCudaImageBytes(int width, int height)
+{
+    // CudaImage_Allocate uses cudaMallocPitch; approximate pitch as iAlignUp(width, 128)
+    int pitch = p_iAlignUp(width, 128);
+    return (size_t)pitch * height * sizeof(float);
+}
+
+static size_t estimateSiftDataDeviceBytes(int maxKeypoints)
+{
+    return (size_t)sizeof(SiftPoint) * maxKeypoints;
+}
+
+static size_t estimateContextBytes()
+{
+    const size_t counterBytes   = (8 * 2 + 1) * sizeof(unsigned int);
+    const size_t laplaceBytes   = 8 * 12 * 16 * sizeof(float);
+    const size_t scaleDownBytes = 5 * sizeof(float);
+    const size_t lowPassBytes   = (2 * 4 + 1) * sizeof(float); // LOWPASS_R = 4
+    return counterBytes + laplaceBytes + scaleDownBytes + lowPassBytes;
+}
+
+static int clampOctaves(int requested, int width, int height)
+{
+    int minDim = std::min(width, height);
+    int maxOctaves = (int)std::floor(std::log2((double)minDim)) - 3;
+    int octaves = std::min(requested, maxOctaves);
+    octaves = std::min(octaves, 7);
+    octaves = std::max(octaves, 3);
+    return octaves;
+}
+
+size_t EstimateVramExtractSift(int image_width, int image_height, const ExtractSiftOptions_t *options)
+{
+    int octaves = clampOctaves(options->num_octaves_, image_width, image_height);
+
+    size_t siftBytes    = estimateSiftDataDeviceBytes(options->max_keypoints_);
+    size_t imageBytes   = estimateCudaImageBytes(image_width, image_height);
+    size_t pyramidBytes = estimatePyramidBytes(image_width, image_height, octaves);
+    size_t contextBytes = estimateContextBytes();
+
+    return siftBytes + imageBytes + pyramidBytes + contextBytes;
+}
+
+size_t EstimateVramMatchSift(int max_keypoints1, int max_keypoints2)
+{
+    return estimateSiftDataDeviceBytes(max_keypoints1)
+         + estimateSiftDataDeviceBytes(max_keypoints2);
+}
+
+size_t EstimateVramFindHomography(int max_keypoints, const FindHomographyOptions_t *options)
+{
+    // Existing SiftData that must be resident
+    size_t siftBytes = estimateSiftDataDeviceBytes(max_keypoints);
+
+    // Temporary RANSAC buffers (mirroring matching.cu)
+    int numPtsUp = ((max_keypoints + 15) / 16) * 16;
+    int numLoops = ((options->num_loops_ + 15) / 16) * 16;
+
+    size_t coordBytes    = 4 * sizeof(float) * numPtsUp;
+    size_t randPtsBytes  = 4 * sizeof(int)   * numLoops;
+    size_t homoBytes     = 8 * sizeof(float) * numLoops;
+
+    return siftBytes + coordBytes + randPtsBytes + homoBytes;
+}
+
+size_t EstimateVramWarpImages(int image_width1, int image_height1, int image_width2, int image_height2)
+{
+    // Source images on device (pitch-aligned)
+    size_t src1 = estimateCudaImageBytes(image_width1, image_height1);
+    size_t src2 = estimateCudaImageBytes(image_width2, image_height2);
+
+    // Worst-case output canvas: 2x the larger dimension in each axis
+    int outW = 2 * std::max(image_width1, image_width2);
+    int outH = 2 * std::max(image_height1, image_height2);
+    size_t out1 = estimateCudaImageBytes(outW, outH);
+    size_t out2 = out1; // same canvas size
+
+    return src1 + src2 + out1 + out2;
+}
+
+size_t EstimateVramFullPipeline(int image_width1, int image_height1,
+                                int image_width2, int image_height2,
+                                const ExtractSiftOptions_t *extract_options,
+                                const FindHomographyOptions_t *homography_options)
+{
+    // SiftData for both images persists across all stages
+    size_t siftBoth = estimateSiftDataDeviceBytes(extract_options->max_keypoints_) * 2;
+
+    // Peak during extraction (image 1 or 2, whichever is larger)
+    int maxW = std::max(image_width1, image_width2);
+    int maxH = std::max(image_height1, image_height2);
+    int octaves = clampOctaves(extract_options->num_octaves_, maxW, maxH);
+
+    size_t extractPeak = siftBoth
+                       + estimateCudaImageBytes(maxW, maxH)
+                       + estimatePyramidBytes(maxW, maxH, octaves)
+                       + estimateContextBytes();
+
+    // Peak during homography (SiftData + RANSAC temporaries)
+    size_t homographyPeak = siftBoth
+                          + EstimateVramFindHomography(extract_options->max_keypoints_, homography_options)
+                          - estimateSiftDataDeviceBytes(extract_options->max_keypoints_); // avoid double-counting the one SiftData
+
+    // Peak during warping (SiftData already freed in convenience funcs, but be conservative)
+    size_t warpPeak = siftBoth
+                    + EstimateVramWarpImages(image_width1, image_height1, image_width2, image_height2);
+
+    return std::max({extractPeak, homographyPeak, warpPeak});
+}
