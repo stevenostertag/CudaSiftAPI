@@ -98,6 +98,11 @@ add_executable(cusift_demo test/main.cpp)
 target_include_directories(cusift_demo PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
 target_link_libraries(cusift_demo PRIVATE cusift)
 
+# ── Speed benchmark executable ──────────────────────────
+add_executable(cusift_speed test/speed.cpp)
+target_include_directories(cusift_speed PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+target_link_libraries(cusift_speed PRIVATE cusift)
+
 # ── Install ──────────────────────────────────────────────
 include(GNUInstallDirs)
 
