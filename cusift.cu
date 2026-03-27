@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <string>
+#include <random>
 #include <omp.h>
 
 #define ERROR(msg) __throw_error(__FILE__, __LINE__, msg)
@@ -467,6 +468,154 @@ void ExtractAndMatchAndFindHomography(const Image_t *image1, const Image_t *imag
             homography_options->improve_min_score_,
             homography_options->improve_max_ambiguity_,
             homography_options->improve_thresh_);
+    });
+}
+
+// ── Helper: Frobenius-like distance between 2x2 top-left sub-matrix and I ──
+static float EyeDiff2x2(const float *H)
+{
+    // H is row-major 3x3. Top-left 2x2: H[0],H[1],H[3],H[4]
+    float d00 = H[0] - 1.0f;
+    float d01 = H[1];
+    float d10 = H[3];
+    float d11 = H[4] - 1.0f;
+    return d00 * d00 + d01 * d01 + d10 * d10 + d11 * d11;
+}
+
+void ExtractAndMatchAndFindHomography_Multi(const Image_t *image1, const Image_t *image2, SiftData *sift_data1, SiftData *sift_data2, float *homography, int *num_matches, const ExtractSiftOptions_t *extract_options, const FindHomographyOptions_t *homography_options, int num_homography_attempts, int homography_goal)
+{
+    cusift_api_guard([&]()
+    {
+        int maxW = std::max(image1->width_, image2->width_);
+        int maxH = std::max(image1->height_, image2->height_);
+
+        CudaImageGuard cuda_image1;
+        CudaImageGuard cuda_image2;
+
+        // Clamp octaves to what the smallest image dimension supports
+        int minDim = std::min({image1->width_, image1->height_, image2->width_, image2->height_});
+        int maxOctaves = static_cast<int>(std::floor(std::log2(minDim))) - 3;
+        int octaves = std::min(extract_options->num_octaves_, maxOctaves);
+        if (extract_options->num_octaves_ > maxOctaves)
+        {
+            std::cerr << "Warning: Requested number of octaves (" << extract_options->num_octaves_ << ") exceeds the maximum possible (" << maxOctaves << ") for the given image size. Reducing to " << maxOctaves << "." << std::endl;
+        }
+
+        // Limit num octaves to 7, quietly
+        octaves = std::min(octaves, 7);
+        octaves = std::max(octaves, 3); // Ensure at least 3 octaves
+
+        // Only allocate a single temporary buffer for both images since they won't be processed at the same time
+        SiftTempMemoryGuard tempMemory(AllocSiftTempMemory(maxW, maxH, octaves));
+
+        // Extract from image 1
+        InitSiftData(sift_data1, extract_options->max_keypoints_, true, true);
+        CudaImage_Allocate(cuda_image1.get(), image1->width_, image1->height_,
+                           p_iAlignUp(image1->width_, 128), false, nullptr, image1->host_img_);
+        CudaImage_Download(cuda_image1.get());
+        ExtractSift(sift_data1, cuda_image1.get(), octaves,
+                    extract_options->init_blur_, extract_options->thresh_,
+                    extract_options->lowest_scale_, extract_options->highest_scale_, extract_options->edge_thresh_,
+                    tempMemory.get());
+        if (extract_options->scale_suppression_radius_ > 0.0f)
+            SuppressEmbeddedPoints(sift_data1, extract_options->scale_suppression_radius_);
+
+        // Extract from image 2
+        InitSiftData(sift_data2, extract_options->max_keypoints_, true, true);
+        CudaImage_Allocate(cuda_image2.get(), image2->width_, image2->height_,
+                           p_iAlignUp(image2->width_, 128), false, nullptr, image2->host_img_);
+        CudaImage_Download(cuda_image2.get());
+        ExtractSift(sift_data2, cuda_image2.get(), octaves,
+                    extract_options->init_blur_, extract_options->thresh_,
+                    extract_options->lowest_scale_, extract_options->highest_scale_, extract_options->edge_thresh_,
+                    tempMemory.get());
+        if (extract_options->scale_suppression_radius_ > 0.0f)
+            SuppressEmbeddedPoints(sift_data2, extract_options->scale_suppression_radius_);
+
+        // Match
+        MatchSiftData_private(sift_data1, sift_data2);
+
+        // Clamp attempts to at least 1
+        int attempts = std::max(num_homography_attempts, 1);
+
+        // Build a mutable copy of the homography options so we can vary the seed
+        FindHomographyOptions_t opts = *homography_options;
+
+        // Seed source: if the caller specified seed=0 (non-deterministic), use
+        // std::random_device; otherwise increment deterministically from the
+        // given seed each attempt.
+        std::random_device rd;
+
+        float bestH[9] = {};
+        int   bestInliers = -1;
+        float bestScore   = FLT_MAX; // lower is better for EyeDiff
+
+        for (int attempt = 0; attempt < attempts; attempt++)
+        {
+            float candidateH[9];
+            int   candidateInliers = 0;
+
+            // Vary seed per attempt
+            if (homography_options->seed_ == 0)
+                opts.seed_ = rd();
+            else
+                opts.seed_ = homography_options->seed_ + (unsigned int)attempt;
+
+            FindGeometricModel(
+                sift_data1, candidateH, &candidateInliers,
+                &opts);
+
+            // Skip non-finite results
+            bool finite = true;
+            for (int i = 0; i < 9; i++)
+            {
+                if (!std::isfinite(candidateH[i]))
+                {
+                    finite = false;
+                    break;
+                }
+            }
+            if (!finite)
+                continue;
+
+            ImproveHomography(
+                sift_data1, candidateH,
+                opts.improve_num_loops_,
+                opts.improve_min_score_,
+                opts.improve_max_ambiguity_,
+                opts.improve_thresh_);
+
+            // Evaluate candidate
+            bool isBetter = false;
+            if (homography_goal == CUSIFT_HOMOGRAPHY_GOAL_MIN_EYE_DIFF)
+            {
+                float score = EyeDiff2x2(candidateH);
+                if (bestInliers < 0 || score < bestScore)
+                {
+                    bestScore = score;
+                    isBetter = true;
+                }
+            }
+            else // CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS (default)
+            {
+                if (candidateInliers > bestInliers)
+                    isBetter = true;
+            }
+
+            if (isBetter)
+            {
+                std::memcpy(bestH, candidateH, sizeof(bestH));
+                bestInliers = candidateInliers;
+            }
+        }
+
+        if (bestInliers < 0)
+        {
+            ERROR("Homography contains non-finite values in all attempts");
+        }
+
+        std::memcpy(homography, bestH, 9 * sizeof(float));
+        *num_matches = bestInliers;
     });
 }
 

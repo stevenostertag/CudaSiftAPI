@@ -651,6 +651,110 @@ static bool test_extract_match_homography_warp_both_models(const Image_t& im1, c
     return pass;
 }
 
+// -- Test: ExtractAndMatchAndFindHomography_Multi --------
+
+static bool test_extract_match_homography_multi(const Image_t& im1, const Image_t& im2)
+{
+    std::cout << "[TEST] ExtractAndMatchAndFindHomography_Multi" << std::endl;
+
+    bool pass = true;
+
+    // Sub-test 1: MAX_INLIERS goal with multiple attempts
+    {
+        std::cout << "  Goal: MAX_INLIERS, 5 attempts" << std::endl;
+        SiftData sd1, sd2;
+        ExtractSiftOptions_t eo = default_extract_options();
+        FindHomographyOptions_t ho = default_homography_options();
+        ho.seed_ = 0; // non-deterministic seeds across attempts
+
+        float H[9];
+        int nm = 0;
+
+        ExtractAndMatchAndFindHomography_Multi(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho,
+                                              5, CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS);
+        if (check_error("Multi (MAX_INLIERS)"))
+        {
+            pass = false;
+        }
+        else
+        {
+            std::cout << "    Inliers: " << nm << std::endl;
+            print_homography(H);
+            if (nm <= 0 || !homography_is_valid(H))
+            {
+                std::cerr << "    [FAIL] invalid result" << std::endl;
+                pass = false;
+            }
+        }
+        DeleteSiftData(&sd1);
+        DeleteSiftData(&sd2);
+    }
+
+    // Sub-test 2: MIN_EYE_DIFF goal with multiple attempts
+    {
+        std::cout << "  Goal: MIN_EYE_DIFF, 5 attempts" << std::endl;
+        SiftData sd1, sd2;
+        ExtractSiftOptions_t eo = default_extract_options();
+        FindHomographyOptions_t ho = default_homography_options();
+        ho.seed_ = 0;
+
+        float H[9];
+        int nm = 0;
+
+        ExtractAndMatchAndFindHomography_Multi(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho,
+                                              5, CUSIFT_HOMOGRAPHY_GOAL_MIN_EYE_DIFF);
+        if (check_error("Multi (MIN_EYE_DIFF)"))
+        {
+            pass = false;
+        }
+        else
+        {
+            std::cout << "    Inliers: " << nm << std::endl;
+            print_homography(H);
+            if (nm <= 0 || !homography_is_valid(H))
+            {
+                std::cerr << "    [FAIL] invalid result" << std::endl;
+                pass = false;
+            }
+        }
+        DeleteSiftData(&sd1);
+        DeleteSiftData(&sd2);
+    }
+
+    // Sub-test 3: single attempt should behave like the non-Multi version
+    {
+        std::cout << "  Single attempt (num_homography_attempts=1)" << std::endl;
+        SiftData sd1, sd2;
+        ExtractSiftOptions_t eo = default_extract_options();
+        FindHomographyOptions_t ho = default_homography_options();
+
+        float H[9];
+        int nm = 0;
+
+        ExtractAndMatchAndFindHomography_Multi(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho,
+                                              1, CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS);
+        if (check_error("Multi (single attempt)"))
+        {
+            pass = false;
+        }
+        else
+        {
+            std::cout << "    Inliers: " << nm << std::endl;
+            print_homography(H);
+            if (nm <= 0 || !homography_is_valid(H))
+            {
+                std::cerr << "    [FAIL] invalid result" << std::endl;
+                pass = false;
+            }
+        }
+        DeleteSiftData(&sd1);
+        DeleteSiftData(&sd2);
+    }
+
+    std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
+    return pass;
+}
+
 // -- Test: VRAM estimation functions ---------------------
 
 static bool test_estimate_vram(const Image_t& im1, const Image_t& im2)
@@ -762,6 +866,7 @@ int main(int argc, char* argv[])
     run(test_find_homography_both_models(im1, im2));
     run(test_extract_match_homography_both_models(im1, im2));
     run(test_extract_match_homography_warp_both_models(im1, im2));
+    run(test_extract_match_homography_multi(im1, im2));
     run(test_estimate_vram(im1, im2));
 
     std::cout << "========================================" << std::endl;

@@ -34,7 +34,7 @@ set(CUDA_SOURCES
   cudaImage.cu
   cudaSiftH.cu
   matching.cu
-  cusfit.cu
+  cusift.cu
 )
 
 set(C_SOURCES

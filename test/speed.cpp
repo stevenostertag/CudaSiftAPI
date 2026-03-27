@@ -311,6 +311,33 @@ static BenchResult benchmark(const char* label, const Image_t& im1, const Image_
         DeleteSiftData(&sd2);
     }
 
+    // -- Multi-attempt homography (5 attempts, both goals) --
+    {
+        for (int goal = 0; goal <= 1; goal++)
+        {
+            const char* goal_name = (goal == CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS)
+                                    ? "Multi(MAX_INL)" : "Multi(MIN_EYE)";
+            SiftData sd1{}, sd2{};
+            float H[9]{};
+            int nm = 0;
+
+            auto t0 = Clock::now();
+            ExtractAndMatchAndFindHomography_Multi(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho,
+                                                  5, goal);
+            auto t1 = Clock::now();
+            double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+            if (check_error(goal_name))
+                r.ok = false;
+            else
+                std::cout << "    " << goal_name << ": " << fmt_ms(ms)
+                          << ", inliers=" << nm << std::endl;
+
+            DeleteSiftData(&sd1);
+            DeleteSiftData(&sd2);
+        }
+    }
+
     return r;
 }
 
