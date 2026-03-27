@@ -1169,6 +1169,162 @@ class CuSift:
                 self._lib.FreeImage(byref(warped1_ct))
                 self._lib.FreeImage(byref(warped2_ct))
 
+    def extract_and_match_and_find_homography_multi_and_warp(
+        self,
+        image1: Union[str, Path, np.ndarray],
+        image2: Union[str, Path, np.ndarray],
+        *,
+        width1: Optional[int] = None,
+        height1: Optional[int] = None,
+        width2: Optional[int] = None,
+        height2: Optional[int] = None,
+        extract_options: Optional[ExtractOptions] = None,
+        homography_options: Optional[HomographyOptions] = None,
+        num_homography_attempts: int = 5,
+        homography_goal: int = HOMOGRAPHY_GOAL_MAX_INLIERS,
+    ) -> tuple[KeypointList, KeypointList, List[MatchResult], np.ndarray, int, np.ndarray, np.ndarray]:
+        """Full pipeline with multi-attempt homography: extract, match, find the best homography, and warp.
+
+        This wraps the C ``ExtractAndMatchAndFindHomography_Multi_AndWarp``
+        function, which fuses :meth:`extract`, :meth:`match`,
+        :meth:`find_homography` (repeated *num_homography_attempts* times),
+        and :meth:`warp_images` into a single GPU-accelerated pipeline call.
+
+        Parameters
+        ----------
+        image1 : str | Path | numpy.ndarray
+            First image (file path or 2-D ``float32`` array).
+        image2 : str | Path | numpy.ndarray
+            Second image (file path or 2-D ``float32`` array).
+        width1, height1 : int, optional
+            Dimension overrides for *image1* (only needed for 1-D arrays).
+        width2, height2 : int, optional
+            Dimension overrides for *image2* (only needed for 1-D arrays).
+        extract_options : ExtractOptions, optional
+            Extraction parameters applied to *both* images.  Uses
+            :class:`ExtractOptions` defaults when not provided.
+        homography_options : HomographyOptions, optional
+            RANSAC / refinement parameters.  Uses
+            :class:`HomographyOptions` defaults when not provided.
+        num_homography_attempts : int
+            Number of homography estimation attempts (default 5).
+            Each attempt uses a different random seed.  The best
+            result is returned.
+        homography_goal : int
+            Selection criterion.  Use :data:`HOMOGRAPHY_GOAL_MAX_INLIERS`
+            (default) to pick the homography with the most inliers, or
+            :data:`HOMOGRAPHY_GOAL_MIN_EYE_DIFF` to prefer homographies
+            whose top-left 2×2 block is closest to the identity.
+
+        Returns
+        -------
+        (kp1, kp2, matches, homography, num_inliers, warped1, warped2)
+            *kp1* and *kp2* are :class:`KeypointList` objects.
+            *matches* contains one :class:`MatchResult` per successful
+            correspondence.  *homography* is a ``(3, 3)`` float32 array.
+            *num_inliers* is the inlier count of the best homography.
+            *warped1* and *warped2* are 2-D ``float32`` arrays of the
+            aligned images.
+
+        Raises
+        ------
+        CuSiftError
+            If the underlying C library reports an error.
+        """
+        # -- Resolve pixel data -------------------------------------------
+        pix1, w1, h1 = _resolve_image_arg(image1, width1, height1, "image1")
+        pix2, w2, h2 = _resolve_image_arg(image2, width2, height2, "image2")
+
+        # -- Build ctypes arguments ---------------------------------------
+        img1_ct, _pix1_ref = _make_image_t(pix1, w1, h1)
+        img2_ct, _pix2_ref = _make_image_t(pix2, w2, h2)
+        sift_data1 = SiftData()
+        sift_data2 = SiftData()
+        homography = (c_float * 9)()
+        num_matches = c_int(0)
+        ext_ct = (extract_options or ExtractOptions())._to_ctypes()
+        hom_ct = (homography_options or HomographyOptions())._to_ctypes()
+        warped1_ct = Image_t()
+        warped2_ct = Image_t()
+
+        # -- Call the C function ------------------------------------------
+        self._lib.ExtractAndMatchAndFindHomography_Multi_AndWarp(
+            byref(img1_ct),
+            byref(img2_ct),
+            byref(sift_data1),
+            byref(sift_data2),
+            homography,
+            byref(num_matches),
+            byref(ext_ct),
+            byref(hom_ct),
+            byref(warped1_ct),
+            byref(warped2_ct),
+            c_int(num_homography_attempts),
+            c_int(homography_goal),
+        )
+        kp1 = None
+        kp2 = None
+        c_call_ok = False
+        try:
+            _check_error(self._lib)
+            c_call_ok = True
+
+            # -- Convert keypoints ----------------------------------------
+            kps1: List[Keypoint] = []
+            for i in range(sift_data1.numPts):
+                kps1.append(Keypoint._from_sift_point(sift_data1.h_data[i]))
+            kp1 = KeypointList(kps1, sift_data1, self._lib)
+
+            kps2: List[Keypoint] = []
+            for i in range(sift_data2.numPts):
+                kps2.append(Keypoint._from_sift_point(sift_data2.h_data[i]))
+            kp2 = KeypointList(kps2, sift_data2, self._lib)
+
+            # -- Read back match results from sift_data1 ------------------
+            matches: List[MatchResult] = []
+            for i in range(sift_data1.numPts):
+                pt = sift_data1.h_data[i]
+                if pt.match >= 0:
+                    matches.append(
+                        MatchResult(
+                            query_index=i,
+                            match_index=pt.match,
+                            x1=pt.xpos,
+                            y1=pt.ypos,
+                            x2=pt.match_xpos,
+                            y2=pt.match_ypos,
+                            error=pt.match_error,
+                            score=pt.score,
+                            ambiguity=pt.ambiguity,
+                        )
+                    )
+
+            # -- Convert homography to numpy ------------------------------
+            H = np.ctypeslib.as_array(homography, shape=(9,)).copy().reshape(3, 3)
+
+            # -- Copy warped pixels into numpy arrays ---------------------
+            n1 = warped1_ct.width_ * warped1_ct.height_
+            n2 = warped2_ct.width_ * warped2_ct.height_
+
+            warped1 = np.ctypeslib.as_array(warped1_ct.host_img_, shape=(n1,)).copy()
+            warped1 = warped1.reshape(warped1_ct.height_, warped1_ct.width_)
+
+            warped2 = np.ctypeslib.as_array(warped2_ct.host_img_, shape=(n2,)).copy()
+            warped2 = warped2.reshape(warped2_ct.height_, warped2_ct.width_)
+
+            return kp1, kp2, matches, H, num_matches.value, warped1, warped2
+        except:
+            if kp1 is None:
+                self._lib.DeleteSiftData(byref(sift_data1))
+            if kp2 is None:
+                self._lib.DeleteSiftData(byref(sift_data2))
+            raise
+        finally:
+            if c_call_ok:
+                # Free the C-allocated pixel buffers (data already copied)
+                self._lib.FreeImage(byref(warped1_ct))
+                self._lib.FreeImage(byref(warped2_ct))
+
     # -- Visualisation ----------------------------------------------------
 
     @staticmethod
