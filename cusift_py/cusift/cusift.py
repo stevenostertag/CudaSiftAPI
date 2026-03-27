@@ -398,15 +398,19 @@ class CuSift:
         self._lib.ExtractSiftFromImage(
             byref(img_ct), byref(sift_data), byref(opts_ct)
         )
-        _check_error(self._lib)
+        try:
+            _check_error(self._lib)
 
-        # -- Convert results ----------------------------------------------
-        keypoints: List[Keypoint] = []
-        for i in range(sift_data.numPts):
-            keypoints.append(Keypoint._from_sift_point(sift_data.h_data[i]))
+            # -- Convert results ------------------------------------------
+            keypoints: List[Keypoint] = []
+            for i in range(sift_data.numPts):
+                keypoints.append(Keypoint._from_sift_point(sift_data.h_data[i]))
 
-        # Wrap in KeypointList (owns the SiftData; freed on GC or .free())
-        return KeypointList(keypoints, sift_data, self._lib)
+            # Wrap in KeypointList (owns the SiftData; freed on GC or .free())
+            return KeypointList(keypoints, sift_data, self._lib)
+        except:
+            self._lib.DeleteSiftData(byref(sift_data))
+            raise
 
     # -- Feature matching -------------------------------------------------
 
@@ -632,20 +636,21 @@ class CuSift:
         # -- Copy warped pixels into numpy arrays -------------------------
         #    The C library allocates warped_image.host_img_ with malloc();
         #    we copy the data and then free the C-side buffer via FreeImage().
-        n1 = warped1_ct.width_ * warped1_ct.height_
-        n2 = warped2_ct.width_ * warped2_ct.height_
+        try:
+            n1 = warped1_ct.width_ * warped1_ct.height_
+            n2 = warped2_ct.width_ * warped2_ct.height_
 
-        warped1 = np.ctypeslib.as_array(warped1_ct.host_img_, shape=(n1,)).copy()
-        warped1 = warped1.reshape(warped1_ct.height_, warped1_ct.width_)
+            warped1 = np.ctypeslib.as_array(warped1_ct.host_img_, shape=(n1,)).copy()
+            warped1 = warped1.reshape(warped1_ct.height_, warped1_ct.width_)
 
-        warped2 = np.ctypeslib.as_array(warped2_ct.host_img_, shape=(n2,)).copy()
-        warped2 = warped2.reshape(warped2_ct.height_, warped2_ct.width_)
+            warped2 = np.ctypeslib.as_array(warped2_ct.host_img_, shape=(n2,)).copy()
+            warped2 = warped2.reshape(warped2_ct.height_, warped2_ct.width_)
 
-        # Free the C-allocated pixel buffers via the library's own free
-        self._lib.FreeImage(byref(warped1_ct))
-        self._lib.FreeImage(byref(warped2_ct))
-
-        return warped1, warped2
+            return warped1, warped2
+        finally:
+            # Free the C-allocated pixel buffers via the library's own free
+            self._lib.FreeImage(byref(warped1_ct))
+            self._lib.FreeImage(byref(warped2_ct))
 
     # -- Convenience combo pipelines --------------------------------------
 
@@ -715,39 +720,48 @@ class CuSift:
             byref(sift_data2),
             byref(opts_ct),
         )
-        _check_error(self._lib)
+        kp1 = None
+        kp2 = None
+        try:
+            _check_error(self._lib)
 
-        # -- Convert keypoints --------------------------------------------
-        kps1: List[Keypoint] = []
-        for i in range(sift_data1.numPts):
-            kps1.append(Keypoint._from_sift_point(sift_data1.h_data[i]))
-        kp1 = KeypointList(kps1, sift_data1, self._lib)
+            # -- Convert keypoints ----------------------------------------
+            kps1: List[Keypoint] = []
+            for i in range(sift_data1.numPts):
+                kps1.append(Keypoint._from_sift_point(sift_data1.h_data[i]))
+            kp1 = KeypointList(kps1, sift_data1, self._lib)
 
-        kps2: List[Keypoint] = []
-        for i in range(sift_data2.numPts):
-            kps2.append(Keypoint._from_sift_point(sift_data2.h_data[i]))
-        kp2 = KeypointList(kps2, sift_data2, self._lib)
+            kps2: List[Keypoint] = []
+            for i in range(sift_data2.numPts):
+                kps2.append(Keypoint._from_sift_point(sift_data2.h_data[i]))
+            kp2 = KeypointList(kps2, sift_data2, self._lib)
 
-        # -- Read back match results from sift_data1 ----------------------
-        matches: List[MatchResult] = []
-        for i in range(sift_data1.numPts):
-            pt = sift_data1.h_data[i]
-            if pt.match >= 0:
-                matches.append(
-                    MatchResult(
-                        query_index=i,
-                        match_index=pt.match,
-                        x1=pt.xpos,
-                        y1=pt.ypos,
-                        x2=pt.match_xpos,
-                        y2=pt.match_ypos,
-                        error=pt.match_error,
-                        score=pt.score,
-                        ambiguity=pt.ambiguity,
+            # -- Read back match results from sift_data1 ------------------
+            matches: List[MatchResult] = []
+            for i in range(sift_data1.numPts):
+                pt = sift_data1.h_data[i]
+                if pt.match >= 0:
+                    matches.append(
+                        MatchResult(
+                            query_index=i,
+                            match_index=pt.match,
+                            x1=pt.xpos,
+                            y1=pt.ypos,
+                            x2=pt.match_xpos,
+                            y2=pt.match_ypos,
+                            error=pt.match_error,
+                            score=pt.score,
+                            ambiguity=pt.ambiguity,
+                        )
                     )
-                )
 
-        return kp1, kp2, matches
+            return kp1, kp2, matches
+        except:
+            if kp1 is None:
+                self._lib.DeleteSiftData(byref(sift_data1))
+            if kp2 is None:
+                self._lib.DeleteSiftData(byref(sift_data2))
+            raise
 
     def extract_and_match_and_find_homography(
         self,
@@ -824,42 +838,51 @@ class CuSift:
             byref(ext_ct),
             byref(hom_ct),
         )
-        _check_error(self._lib)
+        kp1 = None
+        kp2 = None
+        try:
+            _check_error(self._lib)
 
-        # -- Convert keypoints --------------------------------------------
-        kps1: List[Keypoint] = []
-        for i in range(sift_data1.numPts):
-            kps1.append(Keypoint._from_sift_point(sift_data1.h_data[i]))
-        kp1 = KeypointList(kps1, sift_data1, self._lib)
+            # -- Convert keypoints ----------------------------------------
+            kps1: List[Keypoint] = []
+            for i in range(sift_data1.numPts):
+                kps1.append(Keypoint._from_sift_point(sift_data1.h_data[i]))
+            kp1 = KeypointList(kps1, sift_data1, self._lib)
 
-        kps2: List[Keypoint] = []
-        for i in range(sift_data2.numPts):
-            kps2.append(Keypoint._from_sift_point(sift_data2.h_data[i]))
-        kp2 = KeypointList(kps2, sift_data2, self._lib)
+            kps2: List[Keypoint] = []
+            for i in range(sift_data2.numPts):
+                kps2.append(Keypoint._from_sift_point(sift_data2.h_data[i]))
+            kp2 = KeypointList(kps2, sift_data2, self._lib)
 
-        # -- Read back match results from sift_data1 ----------------------
-        matches: List[MatchResult] = []
-        for i in range(sift_data1.numPts):
-            pt = sift_data1.h_data[i]
-            if pt.match >= 0:
-                matches.append(
-                    MatchResult(
-                        query_index=i,
-                        match_index=pt.match,
-                        x1=pt.xpos,
-                        y1=pt.ypos,
-                        x2=pt.match_xpos,
-                        y2=pt.match_ypos,
-                        error=pt.match_error,
-                        score=pt.score,
-                        ambiguity=pt.ambiguity,
+            # -- Read back match results from sift_data1 ------------------
+            matches: List[MatchResult] = []
+            for i in range(sift_data1.numPts):
+                pt = sift_data1.h_data[i]
+                if pt.match >= 0:
+                    matches.append(
+                        MatchResult(
+                            query_index=i,
+                            match_index=pt.match,
+                            x1=pt.xpos,
+                            y1=pt.ypos,
+                            x2=pt.match_xpos,
+                            y2=pt.match_ypos,
+                            error=pt.match_error,
+                            score=pt.score,
+                            ambiguity=pt.ambiguity,
+                        )
                     )
-                )
 
-        # -- Convert homography to numpy ----------------------------------
-        H = np.ctypeslib.as_array(homography, shape=(9,)).copy().reshape(3, 3)
+            # -- Convert homography to numpy ------------------------------
+            H = np.ctypeslib.as_array(homography, shape=(9,)).copy().reshape(3, 3)
 
-        return kp1, kp2, matches, H, num_matches.value
+            return kp1, kp2, matches, H, num_matches.value
+        except:
+            if kp1 is None:
+                self._lib.DeleteSiftData(byref(sift_data1))
+            if kp2 is None:
+                self._lib.DeleteSiftData(byref(sift_data2))
+            raise
 
     def extract_and_match_and_find_homography_and_warp(
         self,
@@ -940,56 +963,68 @@ class CuSift:
             byref(warped1_ct),
             byref(warped2_ct),
         )
-        _check_error(self._lib)
+        kp1 = None
+        kp2 = None
+        c_call_ok = False
+        try:
+            _check_error(self._lib)
+            c_call_ok = True
 
-        # -- Convert keypoints --------------------------------------------
-        kps1: List[Keypoint] = []
-        for i in range(sift_data1.numPts):
-            kps1.append(Keypoint._from_sift_point(sift_data1.h_data[i]))
-        kp1 = KeypointList(kps1, sift_data1, self._lib)
+            # -- Convert keypoints ----------------------------------------
+            kps1: List[Keypoint] = []
+            for i in range(sift_data1.numPts):
+                kps1.append(Keypoint._from_sift_point(sift_data1.h_data[i]))
+            kp1 = KeypointList(kps1, sift_data1, self._lib)
 
-        kps2: List[Keypoint] = []
-        for i in range(sift_data2.numPts):
-            kps2.append(Keypoint._from_sift_point(sift_data2.h_data[i]))
-        kp2 = KeypointList(kps2, sift_data2, self._lib)
+            kps2: List[Keypoint] = []
+            for i in range(sift_data2.numPts):
+                kps2.append(Keypoint._from_sift_point(sift_data2.h_data[i]))
+            kp2 = KeypointList(kps2, sift_data2, self._lib)
 
-        # -- Read back match results from sift_data1 ----------------------
-        matches: List[MatchResult] = []
-        for i in range(sift_data1.numPts):
-            pt = sift_data1.h_data[i]
-            if pt.match >= 0:
-                matches.append(
-                    MatchResult(
-                        query_index=i,
-                        match_index=pt.match,
-                        x1=pt.xpos,
-                        y1=pt.ypos,
-                        x2=pt.match_xpos,
-                        y2=pt.match_ypos,
-                        error=pt.match_error,
-                        score=pt.score,
-                        ambiguity=pt.ambiguity,
+            # -- Read back match results from sift_data1 ------------------
+            matches: List[MatchResult] = []
+            for i in range(sift_data1.numPts):
+                pt = sift_data1.h_data[i]
+                if pt.match >= 0:
+                    matches.append(
+                        MatchResult(
+                            query_index=i,
+                            match_index=pt.match,
+                            x1=pt.xpos,
+                            y1=pt.ypos,
+                            x2=pt.match_xpos,
+                            y2=pt.match_ypos,
+                            error=pt.match_error,
+                            score=pt.score,
+                            ambiguity=pt.ambiguity,
+                        )
                     )
-                )
 
-        # -- Convert homography to numpy ----------------------------------
-        H = np.ctypeslib.as_array(homography, shape=(9,)).copy().reshape(3, 3)
+            # -- Convert homography to numpy ------------------------------
+            H = np.ctypeslib.as_array(homography, shape=(9,)).copy().reshape(3, 3)
 
-        # -- Copy warped pixels into numpy arrays -------------------------
-        n1 = warped1_ct.width_ * warped1_ct.height_
-        n2 = warped2_ct.width_ * warped2_ct.height_
+            # -- Copy warped pixels into numpy arrays ---------------------
+            n1 = warped1_ct.width_ * warped1_ct.height_
+            n2 = warped2_ct.width_ * warped2_ct.height_
 
-        warped1 = np.ctypeslib.as_array(warped1_ct.host_img_, shape=(n1,)).copy()
-        warped1 = warped1.reshape(warped1_ct.height_, warped1_ct.width_)
+            warped1 = np.ctypeslib.as_array(warped1_ct.host_img_, shape=(n1,)).copy()
+            warped1 = warped1.reshape(warped1_ct.height_, warped1_ct.width_)
 
-        warped2 = np.ctypeslib.as_array(warped2_ct.host_img_, shape=(n2,)).copy()
-        warped2 = warped2.reshape(warped2_ct.height_, warped2_ct.width_)
+            warped2 = np.ctypeslib.as_array(warped2_ct.host_img_, shape=(n2,)).copy()
+            warped2 = warped2.reshape(warped2_ct.height_, warped2_ct.width_)
 
-        # Free the C-allocated pixel buffers
-        self._lib.FreeImage(byref(warped1_ct))
-        self._lib.FreeImage(byref(warped2_ct))
-
-        return kp1, kp2, matches, H, num_matches.value, warped1, warped2
+            return kp1, kp2, matches, H, num_matches.value, warped1, warped2
+        except:
+            if kp1 is None:
+                self._lib.DeleteSiftData(byref(sift_data1))
+            if kp2 is None:
+                self._lib.DeleteSiftData(byref(sift_data2))
+            raise
+        finally:
+            if c_call_ok:
+                # Free the C-allocated pixel buffers (data already copied)
+                self._lib.FreeImage(byref(warped1_ct))
+                self._lib.FreeImage(byref(warped2_ct))
 
     # -- Visualisation ----------------------------------------------------
 
