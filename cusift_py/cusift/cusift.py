@@ -42,7 +42,7 @@ HOMOGRAPHY_GOAL_MAX_INLIERS = 0
 """Maximise the number of RANSAC inliers."""
 
 HOMOGRAPHY_GOAL_MIN_EYE_DIFF = 1
-"""Minimise the Frobenius distance between the top-left 2×2 block and the identity matrix."""
+"""Minimise the Frobenius distance between the top-left 2x2 block and the identity matrix."""
 
 
 def _check_error(lib: ctypes.CDLL) -> None:
@@ -939,7 +939,7 @@ class CuSift:
             Selection criterion.  Use :data:`HOMOGRAPHY_GOAL_MAX_INLIERS`
             (default) to pick the homography with the most inliers, or
             :data:`HOMOGRAPHY_GOAL_MIN_EYE_DIFF` to prefer homographies
-            whose top-left 2×2 block is closest to the identity.
+            whose top-left 2x2 block is closest to the identity.
 
         Returns
         -------
@@ -1214,7 +1214,7 @@ class CuSift:
             Selection criterion.  Use :data:`HOMOGRAPHY_GOAL_MAX_INLIERS`
             (default) to pick the homography with the most inliers, or
             :data:`HOMOGRAPHY_GOAL_MIN_EYE_DIFF` to prefer homographies
-            whose top-left 2×2 block is closest to the identity.
+            whose top-left 2x2 block is closest to the identity.
 
         Returns
         -------
