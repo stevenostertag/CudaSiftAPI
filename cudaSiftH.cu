@@ -25,11 +25,21 @@ struct SiftPointCompare
 {
     __host__ __device__ bool operator()(const SiftPoint &a, const SiftPoint &b) const
     {
+        // Sort by sharpness in descending order to keep the most prominent features.
+        if (a.sharpness != b.sharpness)
+        {
+            return a.sharpness > b.sharpness;
+        }
+        // As a tie-breaker for deterministic ordering, use position.
+        if (a.subsampling != b.subsampling)
+        {
+            return a.subsampling < b.subsampling;
+        }
         if (a.ypos != b.ypos)
+        {
             return a.ypos < b.ypos;
-        if (a.xpos != b.xpos)
-            return a.xpos < b.xpos;
-        return a.scale < b.scale;
+        }
+        return a.xpos < b.xpos;
     }
 };
 

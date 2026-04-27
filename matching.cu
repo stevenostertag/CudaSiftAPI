@@ -87,11 +87,12 @@ __global__ void FindMaxCorr10(SiftPoint *sift1, SiftPoint *sift2, int numPts1, i
             {
                 for (int i = 0; i < NRX; i++)
                 {
-                    if (score[dy][i] > max_score[i])
+                    int new_index = min(bp2 + M7R * iy + dy, numPts2 - 1);
+                    if (score[dy][i] > max_score[i] || (score[dy][i] == max_score[i] && new_index < index[i]))
                     {
                         sec_score[i] = max_score[i];
                         max_score[i] = score[dy][i];
-                        index[i] = min(bp2 + M7R * iy + dy, numPts2 - 1);
+                        index[i] = new_index;
                     }
                     else if (score[dy][i] > sec_score[i])
                         sec_score[i] = score[dy][i];

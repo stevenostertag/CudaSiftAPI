@@ -498,18 +498,21 @@ __global__ void FindPointsMultiNew(float *d_Data0, SiftPoint *d_Sift, int width,
             float dval = 0.5f * (dx * pdx + dy * pdy + ds * pds);
             int maxPts = d_MaxNumPoints;
             float sc = powf(2.0f, (float)scale / NUM_SCALES) * exp2f(pds * factor);
-            if (sc >= lowestScale && sc <= highestScale)
+                        if (sc >= lowestScale && sc <= highestScale)
             {
                 atomicMax(&d_PointCounter[2 * octave + 0], d_PointCounter[2 * octave - 1]);
                 unsigned int idx = atomicInc(&d_PointCounter[2 * octave + 0], 0x7fffffff);
-                idx = (idx >= maxPts ? maxPts - 1 : idx);
-                d_Sift[idx].xpos = xpos + pdx;
-                d_Sift[idx].ypos = ypos + pdy;
-                d_Sift[idx].scale = sc;
-                d_Sift[idx].sharpness = val + dval;
-                d_Sift[idx].edgeness = edge;
-                d_Sift[idx].subsampling = subsampling;
+                if (idx < maxPts)
+                {
+                    d_Sift[idx].xpos = xpos + pdx;
+                    d_Sift[idx].ypos = ypos + pdy;
+                    d_Sift[idx].scale = sc;
+                    d_Sift[idx].sharpness = val + dval;
+                    d_Sift[idx].edgeness = edge;
+                    d_Sift[idx].subsampling = subsampling;
+                }
             }
+
         }
     }
 }
