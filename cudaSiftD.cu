@@ -235,11 +235,7 @@ __global__ void ExtractSiftDescriptorsCONSTNew(cudaTextureObject_t texObj, SiftP
         tsum1 = min(buffer[idx] * rsqrtf(tsum1), 0.2f);
 
         __syncthreads(); // Ensure all threads have read sums[] before any thread overwrites it
-
-        // --- RootSIFT Modification ---
-        // Instead of L2 normalizing the clamped values again, we L1 normalize them
-        // and take the square root. Since tsum1 >= 0, sum is just tsum1.
-        sum = tsum1;
+        sum = tsum1 * tsum1;
         for (int i = 16; i > 0; i /= 2)
             sum += ShiftDown(sum, i);
         if ((idx & 31) == 0)
@@ -248,12 +244,7 @@ __global__ void ExtractSiftDescriptorsCONSTNew(cudaTextureObject_t texObj, SiftP
 
         float tsum2 = sums[0] + sums[1] + sums[2] + sums[3];
         float *desc = d_sift[bx].data;
-
-        // The RootSIFT descriptor is the square root of the L1-normalized clamped vector.
-        // We add a small epsilon (1e-8f) to prevent division by zero.
-        desc[idx] = sqrtf(tsum1 / (tsum2 + 1e-8f));
-        // -----------------------------
-
+        desc[idx] = tsum1 * rsqrtf(tsum2);
         if (idx == 0)
         {
             d_sift[bx].xpos *= subsampling;
