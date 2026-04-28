@@ -5,13 +5,13 @@
 
 /* Portable 32-byte alignment for AVX2 */
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-  #define ALIGN32 _Alignas(32)
+#define ALIGN32 _Alignas(32)
 #elif defined(_MSC_VER)
-  #define ALIGN32 __declspec(align(32))
+#define ALIGN32 __declspec(align(32))
 #elif defined(__GNUC__)
-  #define ALIGN32 __attribute__((aligned(32)))
+#define ALIGN32 __attribute__((aligned(32)))
 #else
-  #define ALIGN32
+#define ALIGN32
 #endif
 
 /*
@@ -20,12 +20,12 @@
  */
 static inline float fast_rsqrtf(float x)
 {
-    __m128 vx  = _mm_set_ss(x);
+    __m128 vx = _mm_set_ss(x);
     __m128 est = _mm_rsqrt_ss(vx);
     /* Newton-Raphson: est *= 1.5 - 0.5 * x * est^2 */
     __m128 half_x = _mm_mul_ss(_mm_set_ss(0.5f), vx);
     __m128 est_sq = _mm_mul_ss(est, est);
-    __m128 nr     = _mm_sub_ss(_mm_set_ss(1.5f), _mm_mul_ss(half_x, est_sq));
+    __m128 nr = _mm_sub_ss(_mm_set_ss(1.5f), _mm_mul_ss(half_x, est_sq));
     return _mm_cvtss_f32(_mm_mul_ss(est, nr));
 }
 
@@ -39,7 +39,7 @@ static inline void accumulate_outer_avx2(float M[8][8],
     __m256 y_vec = _mm256_load_ps(Y);
     for (int r = 0; r < 8; r++)
     {
-        __m256 yr_w  = _mm256_set1_ps(Y[r] * w);
+        __m256 yr_w = _mm256_set1_ps(Y[r] * w);
         __m256 m_row = _mm256_load_ps(&M[r][0]);
         m_row = _mm256_fmadd_ps(y_vec, yr_w, m_row);
         _mm256_store_ps(&M[r][0], m_row);
@@ -163,28 +163,38 @@ int ImproveHomography(SiftData *data, float *homography, int numLoops,
             float err_sq = dx * dx + dy * dy;
 
             /* Huber weight: 1 for inliers, thresh/err for outliers */
-            //float wei = (err_sq <= limit) ? 1.0f
-            //                              : thresh * fast_rsqrtf(err_sq);
+            // float wei = (err_sq <= limit) ? 1.0f
+            //                               : thresh * fast_rsqrtf(err_sq);
 
             /* Tukey's biweight: (1 - (err/thresh)^2)^2 for inliers, 0 for outliers */
-            //float r = sqrtf(err_sq) / thresh;
-            //float wei = (r < 1.0f) ? powf(1.0f - r * r, 2) : 0.0f;
+            // float r = sqrtf(err_sq) / thresh;
+            // float wei = (r < 1.0f) ? powf(1.0f - r * r, 2) : 0.0f;
 
             /* Binary weight */
             float wei = (err_sq <= limit) ? 1.0f : 0.0f;
 
             /* --- x-equation contribution --- */
-            Y[0] = xp;  Y[1] = yp;  Y[2] = 1.0f;
-            Y[3] = 0.0f; Y[4] = 0.0f; Y[5] = 0.0f;
-            Y[6] = -xp * mx; Y[7] = -yp * mx;
+            Y[0] = xp;
+            Y[1] = yp;
+            Y[2] = 1.0f;
+            Y[3] = 0.0f;
+            Y[4] = 0.0f;
+            Y[5] = 0.0f;
+            Y[6] = -xp * mx;
+            Y[7] = -yp * mx;
 
             accumulate_outer_avx2(M, Y, wei);
             accumulate_vec_avx2(X, Y, mx * wei);
 
             /* --- y-equation contribution --- */
-            Y[0] = 0.0f; Y[1] = 0.0f; Y[2] = 0.0f;
-            Y[3] = xp;  Y[4] = yp;  Y[5] = 1.0f;
-            Y[6] = -xp * my; Y[7] = -yp * my;
+            Y[0] = 0.0f;
+            Y[1] = 0.0f;
+            Y[2] = 0.0f;
+            Y[3] = xp;
+            Y[4] = yp;
+            Y[5] = 1.0f;
+            Y[6] = -xp * my;
+            Y[7] = -yp * my;
 
             accumulate_outer_avx2(M, Y, wei);
             accumulate_vec_avx2(X, Y, my * wei);

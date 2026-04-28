@@ -13,10 +13,10 @@
 
 // -- Helpers ---------------------------------------------
 
-static int load_image_to_grayscale_float(const char* filename, std::vector<float>& image, int& width, int& height)
+static int load_image_to_grayscale_float(const char *filename, std::vector<float> &image, int &width, int &height)
 {
     int channels;
-    unsigned char* data = stbi_load(filename, &width, &height, &channels, 1);
+    unsigned char *data = stbi_load(filename, &width, &height, &channels, 1);
     if (data == nullptr)
     {
         std::cerr << "Failed to load image: " << filename << std::endl;
@@ -33,7 +33,7 @@ static int load_image_to_grayscale_float(const char* filename, std::vector<float
     return 0;
 }
 
-static void upscale(std::vector<float>& upImage, int& upwidth, int& upheight, const std::vector<float>& image, int width, int height, float scale)
+static void upscale(std::vector<float> &upImage, int &upwidth, int &upheight, const std::vector<float> &image, int width, int height, float scale)
 {
     int upWidth = static_cast<int>(width * scale);
     int upHeight = static_cast<int>(height * scale);
@@ -67,7 +67,7 @@ static void upscale(std::vector<float>& upImage, int& upwidth, int& upheight, co
     }
 }
 
-static bool check_error(const char* label)
+static bool check_error(const char *label)
 {
     if (CusiftHadError())
     {
@@ -188,15 +188,17 @@ struct BenchResult
     bool ok;
 };
 
-static BenchResult benchmark(const char* label, const Image_t& im1, const Image_t& im2, int model_type = CUSIFT_MODEL_HOMOGRAPHY)
+static BenchResult benchmark(const char *label, const Image_t &im1, const Image_t &im2, int model_type = CUSIFT_MODEL_HOMOGRAPHY)
 {
     using Clock = std::chrono::high_resolution_clock;
 
     BenchResult r{};
     r.label = label;
     r.model_type = model_type;
-    r.w1 = im1.width_;  r.h1 = im1.height_;
-    r.w2 = im2.width_;  r.h2 = im2.height_;
+    r.w1 = im1.width_;
+    r.h1 = im1.height_;
+    r.w2 = im2.width_;
+    r.h2 = im2.height_;
     r.ok = true;
 
     ExtractSiftOptions_t eo = default_extract_options();
@@ -204,11 +206,11 @@ static BenchResult benchmark(const char* label, const Image_t& im1, const Image_
     ho.model_type_ = model_type;
 
     // -- VRAM estimates (no GPU calls) -------------------
-    r.vram_extract    = EstimateVramExtractSift(im1.width_, im1.height_, &eo);
-    r.vram_match      = EstimateVramMatchSift(eo.max_keypoints_, eo.max_keypoints_);
+    r.vram_extract = EstimateVramExtractSift(im1.width_, im1.height_, &eo);
+    r.vram_match = EstimateVramMatchSift(eo.max_keypoints_, eo.max_keypoints_);
     r.vram_homography = EstimateVramFindHomography(eo.max_keypoints_, &ho);
-    r.vram_warp       = EstimateVramWarpImages(im1.width_, im1.height_, im2.width_, im2.height_);
-    r.vram_full       = EstimateVramFullPipeline(im1.width_, im1.height_, im2.width_, im2.height_, &eo, &ho);
+    r.vram_warp = EstimateVramWarpImages(im1.width_, im1.height_, im2.width_, im2.height_);
+    r.vram_full = EstimateVramFullPipeline(im1.width_, im1.height_, im2.width_, im2.height_, &eo, &ho);
 
     // -- ExtractSiftFromImage ----------------------------
     {
@@ -220,7 +222,8 @@ static BenchResult benchmark(const char* label, const Image_t& im1, const Image_
         r.extract_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
         r.keypoints1 = sd1.numPts;
         r.keypoints2 = sd2.numPts;
-        if (check_error("ExtractSiftFromImage")) r.ok = false;
+        if (check_error("ExtractSiftFromImage"))
+            r.ok = false;
         DeleteSiftData(&sd1);
         DeleteSiftData(&sd2);
     }
@@ -238,9 +241,11 @@ static BenchResult benchmark(const char* label, const Image_t& im1, const Image_
 
         int m = 0;
         for (int i = 0; i < sd1.numPts; i++)
-            if (sd1.h_data[i].match >= 0) m++;
+            if (sd1.h_data[i].match >= 0)
+                m++;
         r.matched = m;
-        if (check_error("MatchSiftData")) r.ok = false;
+        if (check_error("MatchSiftData"))
+            r.ok = false;
         DeleteSiftData(&sd1);
         DeleteSiftData(&sd2);
     }
@@ -259,7 +264,8 @@ static BenchResult benchmark(const char* label, const Image_t& im1, const Image_
         auto t1 = Clock::now();
         r.homography_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
         r.inliers = nm;
-        if (check_error("FindHomography")) r.ok = false;
+        if (check_error("FindHomography"))
+            r.ok = false;
         DeleteSiftData(&sd1);
         DeleteSiftData(&sd2);
     }
@@ -276,7 +282,8 @@ static BenchResult benchmark(const char* label, const Image_t& im1, const Image_
 
         bool valid = nm > 0;
         for (int i = 0; i < 9 && valid; i++)
-            if (!std::isfinite(H[i])) valid = false;
+            if (!std::isfinite(H[i]))
+                valid = false;
 
         if (valid)
         {
@@ -287,7 +294,8 @@ static BenchResult benchmark(const char* label, const Image_t& im1, const Image_
             r.warp_gpu_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
             r.warp_w = w1.width_;
             r.warp_h = w1.height_;
-            if (check_error("WarpImages")) r.ok = false;
+            if (check_error("WarpImages"))
+                r.ok = false;
             FreeImage(&w1);
             FreeImage(&w2);
         }
@@ -307,7 +315,8 @@ static BenchResult benchmark(const char* label, const Image_t& im1, const Image_
         ExtractAndMatchAndFindHomographyAndWarp(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho, &w1, &w2);
         auto t1 = Clock::now();
         r.full_pipeline_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        if (check_error("FullPipeline")) r.ok = false;
+        if (check_error("FullPipeline"))
+            r.ok = false;
         FreeImage(&w1);
         FreeImage(&w2);
         DeleteSiftData(&sd1);
@@ -323,13 +332,14 @@ static BenchResult benchmark(const char* label, const Image_t& im1, const Image_
 
         auto t0 = Clock::now();
         ExtractAndMatchAndFindHomography_Multi_AndWarp(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho,
-                                                      &w1, &w2, 5, CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS);
+                                                       &w1, &w2, 5, CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS);
         auto t1 = Clock::now();
         r.full_pipeline_multi_warp_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
         r.multi_warp_inliers = nm;
         r.multi_warp_w = w1.width_;
         r.multi_warp_h = w1.height_;
-        if (check_error("FullPipelineMultiWarp")) r.ok = false;
+        if (check_error("FullPipelineMultiWarp"))
+            r.ok = false;
         FreeImage(&w1);
         FreeImage(&w2);
         DeleteSiftData(&sd1);
@@ -340,15 +350,16 @@ static BenchResult benchmark(const char* label, const Image_t& im1, const Image_
     {
         for (int goal = 0; goal <= 1; goal++)
         {
-            const char* goal_name = (goal == CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS)
-                                    ? "Multi(MAX_INL)" : "Multi(MIN_EYE)";
+            const char *goal_name = (goal == CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS)
+                                        ? "Multi(MAX_INL)"
+                                        : "Multi(MIN_EYE)";
             SiftData sd1{}, sd2{};
             float H[9]{};
             int nm = 0;
 
             auto t0 = Clock::now();
             ExtractAndMatchAndFindHomography_Multi(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho,
-                                                  5, goal);
+                                                   5, goal);
             auto t1 = Clock::now();
             double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
@@ -373,14 +384,14 @@ static void print_separator(int total_width)
     std::cout << std::string(total_width, '-') << std::endl;
 }
 
-static void print_results(const std::vector<BenchResult>& results)
+static void print_results(const std::vector<BenchResult> &results)
 {
     // Column widths
     const int cLabel = 14;
-    const int cRes   = 14;
-    const int cKP    = 16;
-    const int cTime  = 14;
-    const int cVram  = 14;
+    const int cRes = 14;
+    const int cKP = 16;
+    const int cTime = 14;
+    const int cVram = 14;
 
     int total = cLabel + cRes + cKP + 5 * cTime + cVram + 10;
 
@@ -388,32 +399,32 @@ static void print_results(const std::vector<BenchResult>& results)
     print_separator(total);
     std::cout << std::left
               << std::setw(cLabel) << "Scale"
-              << " | " << std::setw(cRes)   << "Resolution"
-              << " | " << std::setw(cKP)    << "Keypoints"
-              << " | " << std::setw(cTime)  << "Extract"
-              << " | " << std::setw(cTime)  << "Match"
-              << " | " << std::setw(cTime)  << "Homography"
-              << " | " << std::setw(cTime)  << "Warp (GPU)"
-              << " | " << std::setw(cTime)  << "Multi+Warp"
-              << " | " << std::setw(cVram)  << "Est. VRAM"
+              << " | " << std::setw(cRes) << "Resolution"
+              << " | " << std::setw(cKP) << "Keypoints"
+              << " | " << std::setw(cTime) << "Extract"
+              << " | " << std::setw(cTime) << "Match"
+              << " | " << std::setw(cTime) << "Homography"
+              << " | " << std::setw(cTime) << "Warp (GPU)"
+              << " | " << std::setw(cTime) << "Multi+Warp"
+              << " | " << std::setw(cVram) << "Est. VRAM"
               << std::endl;
     print_separator(total);
 
-    for (const auto& r : results)
+    for (const auto &r : results)
     {
         std::string res = fmt_resolution(r.w1, r.h1);
         std::string kps = std::to_string(r.keypoints1) + " / " + std::to_string(r.keypoints2);
 
         std::cout << std::left
                   << std::setw(cLabel) << r.label
-                  << " | " << std::setw(cRes)   << res
-                  << " | " << std::setw(cKP)    << kps
-                  << " | " << std::setw(cTime)  << fmt_ms(r.extract_ms)
-                  << " | " << std::setw(cTime)  << fmt_ms(r.match_ms)
-                  << " | " << std::setw(cTime)  << fmt_ms(r.homography_ms)
-                  << " | " << std::setw(cTime)  << (r.warp_gpu_ms > 0 ? fmt_ms(r.warp_gpu_ms) : "N/A")
-                  << " | " << std::setw(cTime)  << (r.full_pipeline_multi_warp_ms > 0 ? fmt_ms(r.full_pipeline_multi_warp_ms) : "N/A")
-                  << " | " << std::setw(cVram)  << fmt_bytes(r.vram_full)
+                  << " | " << std::setw(cRes) << res
+                  << " | " << std::setw(cKP) << kps
+                  << " | " << std::setw(cTime) << fmt_ms(r.extract_ms)
+                  << " | " << std::setw(cTime) << fmt_ms(r.match_ms)
+                  << " | " << std::setw(cTime) << fmt_ms(r.homography_ms)
+                  << " | " << std::setw(cTime) << (r.warp_gpu_ms > 0 ? fmt_ms(r.warp_gpu_ms) : "N/A")
+                  << " | " << std::setw(cTime) << (r.full_pipeline_multi_warp_ms > 0 ? fmt_ms(r.full_pipeline_multi_warp_ms) : "N/A")
+                  << " | " << std::setw(cVram) << fmt_bytes(r.vram_full)
                   << std::endl;
     }
 
@@ -433,7 +444,7 @@ static void print_results(const std::vector<BenchResult>& results)
               << std::endl;
     print_separator(vTotal);
 
-    for (const auto& r : results)
+    for (const auto &r : results)
     {
         std::cout << std::left
                   << std::setw(cLabel) << r.label
@@ -460,7 +471,7 @@ static void print_results(const std::vector<BenchResult>& results)
               << std::endl;
     print_separator(tTotal);
 
-    for (const auto& r : results)
+    for (const auto &r : results)
     {
         std::string warpRes = (r.warp_w > 0) ? fmt_resolution(r.warp_w, r.warp_h) : "N/A";
         std::cout << std::left
@@ -477,27 +488,27 @@ static void print_results(const std::vector<BenchResult>& results)
     // Pipeline ratio: sequential (sum of individual stages) vs full pipeline
     std::cout << "\n";
     const int cRLabel = 14;
-    const int cRSeq   = 16;
-    const int cRFull  = 16;
+    const int cRSeq = 16;
+    const int cRFull = 16;
     const int cRRatio = 12;
     int rTotal = cRLabel + cRSeq + cRFull + cRRatio + 9;
     print_separator(rTotal);
     std::cout << std::left
               << std::setw(cRLabel) << "Scale"
-              << " | " << std::setw(cRSeq)   << "Sequential"
-              << " | " << std::setw(cRFull)  << "Full Pipeline"
+              << " | " << std::setw(cRSeq) << "Sequential"
+              << " | " << std::setw(cRFull) << "Full Pipeline"
               << " | " << std::setw(cRRatio) << "Speedup"
               << std::endl;
     print_separator(rTotal);
 
-    for (const auto& r : results)
+    for (const auto &r : results)
     {
         double seq_ms = r.extract_ms + r.match_ms + r.homography_ms + r.warp_gpu_ms;
         double ratio = (r.full_pipeline_ms > 0) ? seq_ms / r.full_pipeline_ms : 0.0;
 
         std::cout << std::left
                   << std::setw(cRLabel) << r.label
-                  << " | " << std::setw(cRSeq)  << fmt_ms(seq_ms)
+                  << " | " << std::setw(cRSeq) << fmt_ms(seq_ms)
                   << " | " << std::setw(cRFull) << fmt_ms(r.full_pipeline_ms)
                   << " | " << std::setw(cRRatio) << fmt_ratio(ratio)
                   << std::endl;
@@ -510,22 +521,22 @@ static void print_results(const std::vector<BenchResult>& results)
     // This gives an effective throughput figure (how fast we move through GPU memory)
     std::cout << "\n";
     const int cBLabel = 14;
-    const int cBData  = 16;
-    const int cBTime  = 16;
-    const int cBBW    = 16;
-    const int cBImg   = 16;
+    const int cBData = 16;
+    const int cBTime = 16;
+    const int cBBW = 16;
+    const int cBImg = 16;
     int bTotal = cBLabel + cBData + cBTime + cBBW + cBImg + 12;
     print_separator(bTotal);
     std::cout << std::left
               << std::setw(cBLabel) << "Scale"
               << " | " << std::setw(cBData) << "Est. VRAM Peak"
               << " | " << std::setw(cBTime) << "Pipeline Time"
-              << " | " << std::setw(cBBW)   << "Eff. Throughput"
-              << " | " << std::setw(cBImg)  << "Image Pixels/ms"
+              << " | " << std::setw(cBBW) << "Eff. Throughput"
+              << " | " << std::setw(cBImg) << "Image Pixels/ms"
               << std::endl;
     print_separator(bTotal);
 
-    for (const auto& r : results)
+    for (const auto &r : results)
     {
         // Effective throughput: estimated VRAM peak / pipeline time
         double gb_per_sec = 0.0;
@@ -543,35 +554,41 @@ static void print_results(const std::vector<BenchResult>& results)
                   << std::setw(cBLabel) << r.label
                   << " | " << std::setw(cBData) << fmt_bytes(r.vram_full)
                   << " | " << std::setw(cBTime) << fmt_ms(r.full_pipeline_ms)
-                  << " | " << std::setw(cBBW)   << fmt_throughput(gb_per_sec)
-                  << " | " << std::setw(cBImg)  << mpix_buf
+                  << " | " << std::setw(cBBW) << fmt_throughput(gb_per_sec)
+                  << " | " << std::setw(cBImg) << mpix_buf
                   << std::endl;
     }
 
     print_separator(bTotal);
 }
 
-static void print_model_comparison(const std::vector<BenchResult>& results)
+static void print_model_comparison(const std::vector<BenchResult> &results)
 {
     // Group results by label: find pairs (HOMOGRAPHY, SIMILARITY)
-    struct Pair { const BenchResult* homo; const BenchResult* sim; };
+    struct Pair
+    {
+        const BenchResult *homo;
+        const BenchResult *sim;
+    };
     std::vector<Pair> pairs;
     for (size_t i = 0; i < results.size(); i++)
     {
-        if (results[i].model_type != CUSIFT_MODEL_HOMOGRAPHY) continue;
-        Pair p{ &results[i], nullptr };
+        if (results[i].model_type != CUSIFT_MODEL_HOMOGRAPHY)
+            continue;
+        Pair p{&results[i], nullptr};
         for (size_t j = 0; j < results.size(); j++)
         {
-            if (results[j].model_type == CUSIFT_MODEL_SIMILARITY
-                && results[j].label == results[i].label)
+            if (results[j].model_type == CUSIFT_MODEL_SIMILARITY && results[j].label == results[i].label)
             {
                 p.sim = &results[j];
                 break;
             }
         }
-        if (p.sim) pairs.push_back(p);
+        if (p.sim)
+            pairs.push_back(p);
     }
-    if (pairs.empty()) return;
+    if (pairs.empty())
+        return;
 
     const int cL = 14, cH = 16, cS = 16, cD = 14, cR = 12;
     const int cIH = 12, cIS = 12;
@@ -580,17 +597,17 @@ static void print_model_comparison(const std::vector<BenchResult>& results)
     std::cout << "\nModel Type Comparison: Homography Stage\n";
     print_separator(tw);
     std::cout << std::left
-              << std::setw(cL)  << "Scale"
-              << " | " << std::setw(cH)  << "Homography (ms)"
-              << " | " << std::setw(cS)  << "Similarity (ms)"
-              << " | " << std::setw(cD)  << "Delta (ms)"
-              << " | " << std::setw(cR)  << "Speedup"
+              << std::setw(cL) << "Scale"
+              << " | " << std::setw(cH) << "Homography (ms)"
+              << " | " << std::setw(cS) << "Similarity (ms)"
+              << " | " << std::setw(cD) << "Delta (ms)"
+              << " | " << std::setw(cR) << "Speedup"
               << " | " << std::setw(cIH) << "Inliers (H)"
               << " | " << std::setw(cIS) << "Inliers (S)"
               << std::endl;
     print_separator(tw);
 
-    for (const auto& p : pairs)
+    for (const auto &p : pairs)
     {
         double delta = p.homo->homography_ms - p.sim->homography_ms;
         double speedup = (p.sim->homography_ms > 0) ? p.homo->homography_ms / p.sim->homography_ms : 0.0;
@@ -615,7 +632,7 @@ static void print_model_comparison(const std::vector<BenchResult>& results)
     std::cout << "\nModel Type Comparison: Full Pipeline\n";
     print_separator(fw);
     std::cout << std::left
-              << std::setw(cL)  << "Scale"
+              << std::setw(cL) << "Scale"
               << " | " << std::setw(cFH) << "Pipeline H (ms)"
               << " | " << std::setw(cFS) << "Pipeline S (ms)"
               << " | " << std::setw(cFD) << "Delta (ms)"
@@ -623,7 +640,7 @@ static void print_model_comparison(const std::vector<BenchResult>& results)
               << std::endl;
     print_separator(fw);
 
-    for (const auto& p : pairs)
+    for (const auto &p : pairs)
     {
         double delta = p.homo->full_pipeline_ms - p.sim->full_pipeline_ms;
         double speedup = (p.sim->full_pipeline_ms > 0) ? p.homo->full_pipeline_ms / p.sim->full_pipeline_ms : 0.0;
@@ -642,7 +659,7 @@ static void print_model_comparison(const std::vector<BenchResult>& results)
 
 // -- Main ------------------------------------------------
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
     if (argc != 3)
     {
@@ -650,8 +667,8 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    const char* image1_path = argv[1];
-    const char* image2_path = argv[2];
+    const char *image1_path = argv[1];
+    const char *image2_path = argv[2];
 
     std::vector<float> image1, image2;
     int width1, height1, width2, height2;
@@ -665,7 +682,8 @@ int main(int argc, char* argv[])
     std::cout << std::endl;
 
     InitializeCudaSift();
-    if (check_error("InitializeCudaSift")) return 1;
+    if (check_error("InitializeCudaSift"))
+        return 1;
 
     // Prepare upscaled variants
     std::vector<float> up1_2x, up2_2x;
@@ -683,27 +701,32 @@ int main(int argc, char* argv[])
     upscale(up1_8x, uw1_8, uh1_8, up1_4x, uw1_4, uh1_4, 2.0f);
     upscale(up2_8x, uw2_8, uh2_8, up2_4x, uw2_4, uh2_4, 2.0f);
 
-    Image_t im1   = { image1.data(),  width1, height1 };
-    Image_t im2   = { image2.data(),  width2, height2 };
-    Image_t im1_2 = { up1_2x.data(),  uw1_2,  uh1_2 };
-    Image_t im2_2 = { up2_2x.data(),  uw2_2,  uh2_2 };
-    Image_t im1_4 = { up1_4x.data(),  uw1_4,  uh1_4 };
-    Image_t im2_4 = { up2_4x.data(),  uw2_4,  uh2_4 };
-    Image_t im1_8 = { up1_8x.data(),  uw1_8,  uh1_8 };
-    Image_t im2_8 = { up2_8x.data(),  uw2_8,  uh2_8 };
+    Image_t im1 = {image1.data(), width1, height1};
+    Image_t im2 = {image2.data(), width2, height2};
+    Image_t im1_2 = {up1_2x.data(), uw1_2, uh1_2};
+    Image_t im2_2 = {up2_2x.data(), uw2_2, uh2_2};
+    Image_t im1_4 = {up1_4x.data(), uw1_4, uh1_4};
+    Image_t im2_4 = {up2_4x.data(), uw2_4, uh2_4};
+    Image_t im1_8 = {up1_8x.data(), uw1_8, uh1_8};
+    Image_t im2_8 = {up2_8x.data(), uw2_8, uh2_8};
 
     std::cout << "Running benchmarks..." << std::endl;
 
-    struct ScaleEntry { const char* label; const Image_t* a; const Image_t* b; };
+    struct ScaleEntry
+    {
+        const char *label;
+        const Image_t *a;
+        const Image_t *b;
+    };
     ScaleEntry scales[] = {
-        { "1x (original)", &im1,   &im2 },
-        { "2x upscale",   &im1_2, &im2_2 },
-        { "4x upscale",   &im1_4, &im2_4 },
-        { "8x upscale",   &im1_8, &im2_8 },
+        {"1x (original)", &im1, &im2},
+        {"2x upscale", &im1_2, &im2_2},
+        {"4x upscale", &im1_4, &im2_4},
+        {"8x upscale", &im1_8, &im2_8},
     };
 
     std::vector<BenchResult> results;
-    for (const auto& s : scales)
+    for (const auto &s : scales)
     {
         results.push_back(benchmark(s.label, *s.a, *s.b, CUSIFT_MODEL_HOMOGRAPHY));
         results.push_back(benchmark(s.label, *s.a, *s.b, CUSIFT_MODEL_SIMILARITY));
@@ -711,7 +734,7 @@ int main(int argc, char* argv[])
 
     // Print the standard tables using only the homography results
     std::vector<BenchResult> homo_results;
-    for (const auto& r : results)
+    for (const auto &r : results)
         if (r.model_type == CUSIFT_MODEL_HOMOGRAPHY)
             homo_results.push_back(r);
     print_results(homo_results);
@@ -721,4 +744,3 @@ int main(int argc, char* argv[])
 
     return 0;
 }
-

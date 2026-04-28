@@ -4,11 +4,11 @@
 #include "cudautils.h"
 #include "cudaImage.h"
 
-struct SiftDeviceContext;  // defined in cudaSiftD.h
+struct SiftDeviceContext; // defined in cudaSiftD.h
 
 //********************************************************//
 // CUDA SIFT extractor by Marten Bjorkman aka Celebrandil //
-//********************************************************//  
+//********************************************************//
 
 int ExtractSiftLoop(SiftData *siftData, CudaImage *img, int numOctaves, float initBlur, float thresh, float lowestScale, float highestScale, float edgeLimit, float subsampling, float *memoryTmp, float *memorySub, SiftDeviceContext &ctx);
 void ExtractSiftOctave(SiftData *siftData, CudaImage *img, int octave, float thresh, float lowestScale, float highestScale, float edgeLimit, float subsampling, float *memoryTmp, SiftDeviceContext &ctx);

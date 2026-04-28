@@ -8,7 +8,7 @@
  * @par References
  * M. Björkman, N. Bergström and D. Kragic, "Detecting, segmenting and tracking unknown objects using multi-label MRF inference", CVIU, 118, pp. 111-127, January 2014
  * https://github.com/Celebrandil/CudaSift
- * 
+ *
  * MIT License
  *
  * Copyright (c) 2017 Mårten Björkman
@@ -30,9 +30,9 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
- * 
+ *
  * Export Functions:
- * - InitializeCudaSift()   
+ * - InitializeCudaSift()
  * - ExtractSiftFromImage()
  * - MatchSiftData()
  * - FindHomography()
@@ -52,9 +52,8 @@
  * - EstimateVramFindHomography()
  * - EstimateVramWarpImages()
  * - EstimateVramFullPipeline()
- * 
+ *
  */
-
 
 #ifndef CUSIFT_H
 #define CUSIFT_H
@@ -130,11 +129,11 @@ extern "C"
      */
     typedef struct
     {
-        int numPts;         /**< Number of available SIFT points. */
-        int maxPts;         /**< Number of allocated SIFT points. */
+        int numPts; /**< Number of available SIFT points. */
+        int maxPts; /**< Number of allocated SIFT points. */
 
-        SiftPoint *h_data;  /**< Host (CPU) data. */
-        SiftPoint *d_data;  /**< Device (GPU) data. */
+        SiftPoint *h_data; /**< Host (CPU) data. */
+        SiftPoint *d_data; /**< Device (GPU) data. */
     } SiftData;
 
     /**
@@ -144,25 +143,24 @@ extern "C"
      */
     typedef struct
     {
-        float *host_img_;  /**< Pointer to row-major float32 pixel data. */
-        int width_;        /**< Image width in pixels. */
-        int height_;       /**< Image height in pixels. */
+        float *host_img_; /**< Pointer to row-major float32 pixel data. */
+        int width_;       /**< Image width in pixels. */
+        int height_;      /**< Image height in pixels. */
     } Image_t;
 
     /**
      * @brief A grayscale image stored as a contiguous float buffer with padding (stride) between rows.
      * This is an output structure used for the warping operations. If the caller wants to keep the
      * warped images on the GPU, they can WarpImages_GPU(), which expects this structure.
-     * 
+     *
      */
-    typedef struct 
+    typedef struct
     {
-        float *strided_img_;    /**< Pointer to row-major float32 pixel data with padding (for GPU warping). */
-        int width_;             /**< Image width in pixels. */
-        int height_;            /**< Image height in pixels. */
-        size_t stride_;         /**< Stride in bytes between rows (for GPU warping). */
+        float *strided_img_; /**< Pointer to row-major float32 pixel data with padding (for GPU warping). */
+        int width_;          /**< Image width in pixels. */
+        int height_;         /**< Image height in pixels. */
+        size_t stride_;      /**< Stride in bytes between rows (for GPU warping). */
     } ImageStrided_t;
-    
 
     /**
      * @brief Options controlling SIFT feature extraction.
@@ -243,14 +241,14 @@ extern "C"
      */
     typedef struct
     {
-        float thresh_;          /**< Contrast threshold applied to DoG extrema. */
-        float lowest_scale_;    /**< Minimum feature scale (in pixels) to keep. */
-        float highest_scale_;   /**< Maximum feature scale (in pixels) to keep (+inf = no limit). */
-        float edge_thresh_;     /**< Edge rejection threshold (ratio of principal curvatures). */
-        float init_blur_;       /**< Assumed blur level (sigma) of the input image. */
-        int max_keypoints_;     /**< Maximum number of keypoints to return. */
-        int num_octaves_;       /**< Number of octave levels in the scale-space pyramid. */
-        float scale_suppression_radius_;  /**< Scale-NMS radius multiplier (0 = disabled). */
+        float thresh_;                   /**< Contrast threshold applied to DoG extrema. */
+        float lowest_scale_;             /**< Minimum feature scale (in pixels) to keep. */
+        float highest_scale_;            /**< Maximum feature scale (in pixels) to keep (+inf = no limit). */
+        float edge_thresh_;              /**< Edge rejection threshold (ratio of principal curvatures). */
+        float init_blur_;                /**< Assumed blur level (sigma) of the input image. */
+        int max_keypoints_;              /**< Maximum number of keypoints to return. */
+        int num_octaves_;                /**< Number of octave levels in the scale-space pyramid. */
+        float scale_suppression_radius_; /**< Scale-NMS radius multiplier (0 = disabled). */
     } ExtractSiftOptions_t;
 
     /**
@@ -272,27 +270,27 @@ extern "C"
      *         [ 0   0   1 ]
      *     where a = s*cos(theta), b = s*sin(theta).
      */
-#define CUSIFT_MODEL_HOMOGRAPHY  0
-#define CUSIFT_MODEL_SIMILARITY  1
+#define CUSIFT_MODEL_HOMOGRAPHY 0
+#define CUSIFT_MODEL_SIMILARITY 1
 
-#define CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS 0    /**< Goal: maximize the number of inliers. */
-#define CUSIFT_HOMOGRAPHY_GOAL_MIN_EYE_DIFF 1   /**< Goal: minimize the difference between the 2x2 submatrix of the homography and the identity matrix. */
+#define CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS 0  /**< Goal: maximize the number of inliers. */
+#define CUSIFT_HOMOGRAPHY_GOAL_MIN_EYE_DIFF 1 /**< Goal: minimize the difference between the 2x2 submatrix of the homography and the identity matrix. */
 
     typedef struct
     {
-        int num_loops_;                 /**< Number of RANSAC iterations. */
-        float min_score_;               /**< Minimum match score to consider a correspondence. */
-        float max_ambiguity_;           /**< Maximum ambiguity for a correspondence to be considered. */
-        float thresh_;                  /**< Inlier distance threshold for RANSAC. */
+        int num_loops_;       /**< Number of RANSAC iterations. */
+        float min_score_;     /**< Minimum match score to consider a correspondence. */
+        float max_ambiguity_; /**< Maximum ambiguity for a correspondence to be considered. */
+        float thresh_;        /**< Inlier distance threshold for RANSAC. */
 
-        int improve_num_loops_;         /**< Number of iterative refinement rounds. */
-        float improve_min_score_;       /**< Minimum match score for a correspondence to participate in refinement. */
-        float improve_max_ambiguity_;   /**< Maximum ambiguity for a correspondence to participate in refinement. */
-        float improve_thresh_;          /**< Inlier distance threshold for refinement. */
+        int improve_num_loops_;       /**< Number of iterative refinement rounds. */
+        float improve_min_score_;     /**< Minimum match score for a correspondence to participate in refinement. */
+        float improve_max_ambiguity_; /**< Maximum ambiguity for a correspondence to participate in refinement. */
+        float improve_thresh_;        /**< Inlier distance threshold for refinement. */
 
         unsigned int seed_; /**< Seed for the PRNG that generates random 4-point samples in RANSAC. 0 = non-deterministic (random_device) */
 
-        int model_type_;    /**< CUSIFT_MODEL_HOMOGRAPHY (0) or CUSIFT_MODEL_SIMILARITY (1). Default: 0. */
+        int model_type_; /**< CUSIFT_MODEL_HOMOGRAPHY (0) or CUSIFT_MODEL_SIMILARITY (1). Default: 0. */
     } FindHomographyOptions_t;
 
     /**
@@ -346,7 +344,7 @@ extern "C"
      * The warped images are returned in the 'warped_image1' and 'warped_image2' output parameters as ImageStrided_t structures, which contain pointers to GPU memory.
      * The caller is responsible for ensuring that the input images and homography are valid before calling this function, and for freeing any resources associated
      * with the warped images when done using FreeImage_GPU() or cudaFree() as appropriate.
-     * 
+     *
      * @param image1 Pointer to the first input image.
      * @param image2 Pointer to the second input image.
      * @param homography Pointer to a 3x3 matrix in row-major order representing the homography transformation.
@@ -420,19 +418,19 @@ extern "C"
     CUSIFT_API void ExtractAndMatchAndFindHomography(const Image_t *image1, const Image_t *image2, SiftData *sift_data1, SiftData *sift_data2, float *homography, int *num_matches, const ExtractSiftOptions_t *extract_options, const FindHomographyOptions_t *homography_options);
 
     /**
-    * @brief Extract Sift features from two images, match them, and find a homography transformation between the matched features using GPU acceleration. This is a convenience function that combines ExtractSiftFromImage(), MatchSiftData(), and FindHomography() into a single call, with GPU acceleration for all stages. The caller is responsible for freeing the SiftData structures using DeleteSiftData() when done.
-    *
-    * @param image1 Pointer to the first input image.
-    * @param image2 Pointer to the second input image.
-    * @param sift_data1 Pointer to the SiftData structure where the extracted features from the first image will be stored.
-    * @param sift_data2 Pointer to the SiftData structure where the extracted features from the second image will be stored.
-    * @param homography Pointer to a 3x3 matrix in row-major order where the computed homography will be stored.
-    * @param num_matches Pointer to an integer where the number of matches used to compute the homography will be stored.
-    * @param extract_options Pointer to the ExtractSiftOptions_t structure containing parameters for SIFT feature extraction. The same options will be used for both images.
-    * @param homography_options Pointer to the FindHomographyOptions_t structure containing parameters for homography computation.
-    * @param num_homography_attempts Integer specifying the number of homography estimation attempts to perform. The library will run the homography estimation process multiple times with different random seeds and return the best result based on the number of inliers or the average inlier error. This can improve robustness against outliers and increase the chances of finding a good homography, especially in challenging scenarios with few matches or high noise. Set this to 1 for a single attempt (default), or higher for more attempts at the cost of increased computation time.
-    * @param homography_goal Integer specifying the goal for homography estimation. Use CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS to maximize the number of inliers, or CUSIFT_HOMOGRAPHY_GOAL_MIN_EYE_DIFF to minimize the difference between the 2x2 submatrix of the homography and the identity matrix, giving more wiegth to homographies that minimize rotation shear and scale.
-    */
+     * @brief Extract Sift features from two images, match them, and find a homography transformation between the matched features using GPU acceleration. This is a convenience function that combines ExtractSiftFromImage(), MatchSiftData(), and FindHomography() into a single call, with GPU acceleration for all stages. The caller is responsible for freeing the SiftData structures using DeleteSiftData() when done.
+     *
+     * @param image1 Pointer to the first input image.
+     * @param image2 Pointer to the second input image.
+     * @param sift_data1 Pointer to the SiftData structure where the extracted features from the first image will be stored.
+     * @param sift_data2 Pointer to the SiftData structure where the extracted features from the second image will be stored.
+     * @param homography Pointer to a 3x3 matrix in row-major order where the computed homography will be stored.
+     * @param num_matches Pointer to an integer where the number of matches used to compute the homography will be stored.
+     * @param extract_options Pointer to the ExtractSiftOptions_t structure containing parameters for SIFT feature extraction. The same options will be used for both images.
+     * @param homography_options Pointer to the FindHomographyOptions_t structure containing parameters for homography computation.
+     * @param num_homography_attempts Integer specifying the number of homography estimation attempts to perform. The library will run the homography estimation process multiple times with different random seeds and return the best result based on the number of inliers or the average inlier error. This can improve robustness against outliers and increase the chances of finding a good homography, especially in challenging scenarios with few matches or high noise. Set this to 1 for a single attempt (default), or higher for more attempts at the cost of increased computation time.
+     * @param homography_goal Integer specifying the goal for homography estimation. Use CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS to maximize the number of inliers, or CUSIFT_HOMOGRAPHY_GOAL_MIN_EYE_DIFF to minimize the difference between the 2x2 submatrix of the homography and the identity matrix, giving more wiegth to homographies that minimize rotation shear and scale.
+     */
     CUSIFT_API void ExtractAndMatchAndFindHomography_Multi(const Image_t *image1, const Image_t *image2, SiftData *sift_data1, SiftData *sift_data2, float *homography, int *num_matches, const ExtractSiftOptions_t *extract_options, const FindHomographyOptions_t *homography_options, int num_homography_attempts, int homography_goal);
 
     /**
@@ -456,7 +454,7 @@ extern "C"
      * @brief Full pipeline: Extract Sift features from two images, match them, find a homography transformation between the matched features, and warp the input images to align them using GPU acceleration.
      * This is a convenience function that combines ExtractSiftFromImage(), MatchSiftData(), FindHomography(), and WarpImages_GPU() into a single call.
      * The caller is responsible for freeing the SiftData structures using DeleteSiftData() when done, and for freeing any resources associated with the warped images when done using FreeImage_GPU() or cudaFree() as appropriate.
-     * 
+     *
      * @param image1 Pointer to the first input image.
      * @param image2 Pointer to the second input image.
      * @param sift_data1 Pointer to the SiftData structure where the extracted features from the first image will be stored.
@@ -467,7 +465,7 @@ extern "C"
      * @param homography_options Pointer to the FindHomographyOptions_t structure containing parameters for homography computation.
      * @param warped_image1 Pointer to the ImageStrided_t structure where the warped first image will be stored. The caller is responsible for freeing any resources associated with the warped images when done.
      * @param warped_image2 Pointer to the ImageStrided_t structure where the warped second image will be stored. The caller is responsible for freeing any resources associated with the warped images when done.
-     * 
+     *
      */
     CUSIFT_API void ExtractAndMatchAndFindHomographyAndWarp_GPU(const Image_t *image1, const Image_t *image2, SiftData *sift_data1, SiftData *sift_data2, float *homography, int *num_matches, const ExtractSiftOptions_t *extract_options, const FindHomographyOptions_t *homography_options, ImageStrided_t *warped_image1, ImageStrided_t *warped_image2);
 

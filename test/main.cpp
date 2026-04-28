@@ -10,10 +10,10 @@
 
 // -- Helpers ---------------------------------------------
 
-static int load_image_to_grayscale_float(const char* filename, std::vector<float>& image, int& width, int& height)
+static int load_image_to_grayscale_float(const char *filename, std::vector<float> &image, int &width, int &height)
 {
     int channels;
-    unsigned char* data = stbi_load(filename, &width, &height, &channels, 1);
+    unsigned char *data = stbi_load(filename, &width, &height, &channels, 1);
     if (data == nullptr)
     {
         std::cerr << "Failed to load image: " << filename << std::endl;
@@ -30,7 +30,7 @@ static int load_image_to_grayscale_float(const char* filename, std::vector<float
     return 0;
 }
 
-static bool check_error(const char* test_name)
+static bool check_error(const char *test_name)
 {
     if (CusiftHadError())
     {
@@ -73,22 +73,23 @@ static FindHomographyOptions_t default_homography_options()
     return opts;
 }
 
-static void print_homography(const float* H)
+static void print_homography(const float *H)
 {
     for (int r = 0; r < 3; r++)
-        std::cout << "    [" << H[r*3+0] << "  " << H[r*3+1] << "  " << H[r*3+2] << "]" << std::endl;
+        std::cout << "    [" << H[r * 3 + 0] << "  " << H[r * 3 + 1] << "  " << H[r * 3 + 2] << "]" << std::endl;
 }
 
-static bool homography_is_valid(const float* H)
+static bool homography_is_valid(const float *H)
 {
     for (int i = 0; i < 9; i++)
-        if (!std::isfinite(H[i])) return false;
+        if (!std::isfinite(H[i]))
+            return false;
     return true;
 }
 
 // -- Test: ExtractSiftFromImage --------------------------
 
-static bool test_extract(const Image_t& im1, const Image_t& im2)
+static bool test_extract(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] ExtractSiftFromImage" << std::endl;
 
@@ -96,10 +97,12 @@ static bool test_extract(const Image_t& im1, const Image_t& im2)
     ExtractSiftOptions_t options = default_extract_options();
 
     ExtractSiftFromImage(&im1, &sift_data1, &options);
-    if (check_error("ExtractSiftFromImage (image1)")) return false;
+    if (check_error("ExtractSiftFromImage (image1)"))
+        return false;
 
     ExtractSiftFromImage(&im2, &sift_data2, &options);
-    if (check_error("ExtractSiftFromImage (image2)")) return false;
+    if (check_error("ExtractSiftFromImage (image2)"))
+        return false;
 
     std::cout << "  Image 1: " << sift_data1.numPts << " keypoints" << std::endl;
     std::cout << "  Image 2: " << sift_data2.numPts << " keypoints" << std::endl;
@@ -114,7 +117,7 @@ static bool test_extract(const Image_t& im1, const Image_t& im2)
 
 // -- Test: MatchSiftData ---------------------------------
 
-static bool test_match(const Image_t& im1, const Image_t& im2)
+static bool test_match(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] MatchSiftData" << std::endl;
 
@@ -123,10 +126,20 @@ static bool test_match(const Image_t& im1, const Image_t& im2)
 
     ExtractSiftFromImage(&im1, &sift_data1, &options);
     ExtractSiftFromImage(&im2, &sift_data2, &options);
-    if (check_error("Extract (setup)")) { DeleteSiftData(&sift_data1); DeleteSiftData(&sift_data2); return false; }
+    if (check_error("Extract (setup)"))
+    {
+        DeleteSiftData(&sift_data1);
+        DeleteSiftData(&sift_data2);
+        return false;
+    }
 
     MatchSiftData(&sift_data1, &sift_data2);
-    if (check_error("MatchSiftData")) { DeleteSiftData(&sift_data1); DeleteSiftData(&sift_data2); return false; }
+    if (check_error("MatchSiftData"))
+    {
+        DeleteSiftData(&sift_data1);
+        DeleteSiftData(&sift_data2);
+        return false;
+    }
 
     int matched = 0;
     for (int i = 0; i < sift_data1.numPts; i++)
@@ -145,7 +158,7 @@ static bool test_match(const Image_t& im1, const Image_t& im2)
 
 // -- Test: FindHomography --------------------------------
 
-static bool test_find_homography(const Image_t& im1, const Image_t& im2)
+static bool test_find_homography(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] FindHomography" << std::endl;
 
@@ -156,12 +169,22 @@ static bool test_find_homography(const Image_t& im1, const Image_t& im2)
     ExtractSiftFromImage(&im1, &sift_data1, &eo);
     ExtractSiftFromImage(&im2, &sift_data2, &eo);
     MatchSiftData(&sift_data1, &sift_data2);
-    if (check_error("Extract+Match (setup)")) { DeleteSiftData(&sift_data1); DeleteSiftData(&sift_data2); return false; }
+    if (check_error("Extract+Match (setup)"))
+    {
+        DeleteSiftData(&sift_data1);
+        DeleteSiftData(&sift_data2);
+        return false;
+    }
 
     float homography[9];
     int num_matches = 0;
     FindHomography(&sift_data1, homography, &num_matches, &ho);
-    if (check_error("FindHomography")) { DeleteSiftData(&sift_data1); DeleteSiftData(&sift_data2); return false; }
+    if (check_error("FindHomography"))
+    {
+        DeleteSiftData(&sift_data1);
+        DeleteSiftData(&sift_data2);
+        return false;
+    }
 
     std::cout << "  Inliers: " << num_matches << std::endl;
     print_homography(homography);
@@ -176,7 +199,7 @@ static bool test_find_homography(const Image_t& im1, const Image_t& im2)
 
 // -- Test: WarpImages (CPU path) -------------------------
 
-static bool test_warp_images_cpu(const Image_t& im1, const Image_t& im2)
+static bool test_warp_images_cpu(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] WarpImages (CPU)" << std::endl;
 
@@ -194,13 +217,19 @@ static bool test_warp_images_cpu(const Image_t& im1, const Image_t& im2)
     if (check_error("setup") || !homography_is_valid(H))
     {
         std::cout << "  [SKIP] no valid homography" << std::endl;
-        DeleteSiftData(&sd1); DeleteSiftData(&sd2);
+        DeleteSiftData(&sd1);
+        DeleteSiftData(&sd2);
         return false;
     }
 
     Image_t w1 = {}, w2 = {};
     WarpImages(&im1, &im2, H, &w1, &w2, false);
-    if (check_error("WarpImages (CPU)")) { DeleteSiftData(&sd1); DeleteSiftData(&sd2); return false; }
+    if (check_error("WarpImages (CPU)"))
+    {
+        DeleteSiftData(&sd1);
+        DeleteSiftData(&sd2);
+        return false;
+    }
 
     std::cout << "  Warped size: " << w1.width_ << "x" << w1.height_ << std::endl;
 
@@ -216,7 +245,7 @@ static bool test_warp_images_cpu(const Image_t& im1, const Image_t& im2)
 
 // -- Test: WarpImages (GPU path) -------------------------
 
-static bool test_warp_images_gpu(const Image_t& im1, const Image_t& im2)
+static bool test_warp_images_gpu(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] WarpImages (GPU)" << std::endl;
 
@@ -234,13 +263,19 @@ static bool test_warp_images_gpu(const Image_t& im1, const Image_t& im2)
     if (check_error("setup") || !homography_is_valid(H))
     {
         std::cout << "  [SKIP] no valid homography" << std::endl;
-        DeleteSiftData(&sd1); DeleteSiftData(&sd2);
+        DeleteSiftData(&sd1);
+        DeleteSiftData(&sd2);
         return false;
     }
 
     Image_t w1 = {}, w2 = {};
     WarpImages(&im1, &im2, H, &w1, &w2, true);
-    if (check_error("WarpImages (GPU)")) { DeleteSiftData(&sd1); DeleteSiftData(&sd2); return false; }
+    if (check_error("WarpImages (GPU)"))
+    {
+        DeleteSiftData(&sd1);
+        DeleteSiftData(&sd2);
+        return false;
+    }
 
     std::cout << "  Warped size: " << w1.width_ << "x" << w1.height_ << std::endl;
 
@@ -256,7 +291,7 @@ static bool test_warp_images_gpu(const Image_t& im1, const Image_t& im2)
 
 // -- Test: WarpImages_GPU (returns device memory) --------
 
-static bool test_warp_images_gpu_strided(const Image_t& im1, const Image_t& im2)
+static bool test_warp_images_gpu_strided(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] WarpImages_GPU" << std::endl;
 
@@ -274,18 +309,23 @@ static bool test_warp_images_gpu_strided(const Image_t& im1, const Image_t& im2)
     if (check_error("setup") || !homography_is_valid(H))
     {
         std::cout << "  [SKIP] no valid homography" << std::endl;
-        DeleteSiftData(&sd1); DeleteSiftData(&sd2);
+        DeleteSiftData(&sd1);
+        DeleteSiftData(&sd2);
         return false;
     }
 
     ImageStrided_t w1 = {}, w2 = {};
     WarpImages_GPU(&im1, &im2, H, &w1, &w2);
-    if (check_error("WarpImages_GPU")) { DeleteSiftData(&sd1); DeleteSiftData(&sd2); return false; }
+    if (check_error("WarpImages_GPU"))
+    {
+        DeleteSiftData(&sd1);
+        DeleteSiftData(&sd2);
+        return false;
+    }
 
     std::cout << "  Warped size: " << w1.width_ << "x" << w1.height_ << ", stride=" << w1.stride_ << std::endl;
 
-    bool pass = w1.strided_img_ != nullptr && w2.strided_img_ != nullptr
-             && w1.width_ > 0 && w1.height_ > 0 && w1.stride_ > 0;
+    bool pass = w1.strided_img_ != nullptr && w2.strided_img_ != nullptr && w1.width_ > 0 && w1.height_ > 0 && w1.stride_ > 0;
     std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
 
     FreeImage_GPU(&w1);
@@ -297,7 +337,7 @@ static bool test_warp_images_gpu_strided(const Image_t& im1, const Image_t& im2)
 
 // -- Test: SaveSiftData ----------------------------------
 
-static bool test_save_sift_data(const Image_t& im1)
+static bool test_save_sift_data(const Image_t &im1)
 {
     std::cout << "[TEST] SaveSiftData" << std::endl;
 
@@ -305,12 +345,16 @@ static bool test_save_sift_data(const Image_t& im1)
     ExtractSiftOptions_t eo = default_extract_options();
 
     ExtractSiftFromImage(&im1, &sd, &eo);
-    if (check_error("Extract (setup)")) { DeleteSiftData(&sd); return false; }
+    if (check_error("Extract (setup)"))
+    {
+        DeleteSiftData(&sd);
+        return false;
+    }
 
-    const char* tmp_file = "test_sift_output.json";
+    const char *tmp_file = "test_sift_output.json";
     SaveSiftData(tmp_file, &sd);
 
-    FILE* f = fopen(tmp_file, "r");
+    FILE *f = fopen(tmp_file, "r");
     bool pass = (f != nullptr);
     if (f)
     {
@@ -334,7 +378,7 @@ static bool test_save_sift_data(const Image_t& im1)
 
 // -- Test: ExtractAndMatchSift ---------------------------
 
-static bool test_extract_and_match(const Image_t& im1, const Image_t& im2)
+static bool test_extract_and_match(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] ExtractAndMatchSift" << std::endl;
 
@@ -342,7 +386,12 @@ static bool test_extract_and_match(const Image_t& im1, const Image_t& im2)
     ExtractSiftOptions_t eo = default_extract_options();
 
     ExtractAndMatchSift(&im1, &im2, &sd1, &sd2, &eo);
-    if (check_error("ExtractAndMatchSift")) { DeleteSiftData(&sd1); DeleteSiftData(&sd2); return false; }
+    if (check_error("ExtractAndMatchSift"))
+    {
+        DeleteSiftData(&sd1);
+        DeleteSiftData(&sd2);
+        return false;
+    }
 
     int matched = 0;
     for (int i = 0; i < sd1.numPts; i++)
@@ -362,7 +411,7 @@ static bool test_extract_and_match(const Image_t& im1, const Image_t& im2)
 
 // -- Test: ExtractAndMatchAndFindHomography ---------------
 
-static bool test_extract_match_homography(const Image_t& im1, const Image_t& im2)
+static bool test_extract_match_homography(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] ExtractAndMatchAndFindHomography" << std::endl;
 
@@ -374,7 +423,12 @@ static bool test_extract_match_homography(const Image_t& im1, const Image_t& im2
     int nm = 0;
 
     ExtractAndMatchAndFindHomography(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho);
-    if (check_error("ExtractAndMatchAndFindHomography")) { DeleteSiftData(&sd1); DeleteSiftData(&sd2); return false; }
+    if (check_error("ExtractAndMatchAndFindHomography"))
+    {
+        DeleteSiftData(&sd1);
+        DeleteSiftData(&sd2);
+        return false;
+    }
 
     std::cout << "  Inliers: " << nm << std::endl;
     print_homography(H);
@@ -389,7 +443,7 @@ static bool test_extract_match_homography(const Image_t& im1, const Image_t& im2
 
 // -- Test: ExtractAndMatchAndFindHomographyAndWarp --------
 
-static bool test_extract_match_homography_warp(const Image_t& im1, const Image_t& im2)
+static bool test_extract_match_homography_warp(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] ExtractAndMatchAndFindHomographyAndWarp" << std::endl;
 
@@ -404,8 +458,10 @@ static bool test_extract_match_homography_warp(const Image_t& im1, const Image_t
     ExtractAndMatchAndFindHomographyAndWarp(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho, &w1, &w2);
     if (check_error("ExtractAndMatchAndFindHomographyAndWarp"))
     {
-        DeleteSiftData(&sd1); DeleteSiftData(&sd2);
-        FreeImage(&w1); FreeImage(&w2);
+        DeleteSiftData(&sd1);
+        DeleteSiftData(&sd2);
+        FreeImage(&w1);
+        FreeImage(&w2);
         return false;
     }
 
@@ -413,9 +469,7 @@ static bool test_extract_match_homography_warp(const Image_t& im1, const Image_t
     std::cout << "  Warped size: " << w1.width_ << "x" << w1.height_ << std::endl;
     print_homography(H);
 
-    bool pass = nm > 0 && homography_is_valid(H)
-             && w1.host_img_ != nullptr && w2.host_img_ != nullptr
-             && w1.width_ > 0 && w1.height_ > 0;
+    bool pass = nm > 0 && homography_is_valid(H) && w1.host_img_ != nullptr && w2.host_img_ != nullptr && w1.width_ > 0 && w1.height_ > 0;
     std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
 
     FreeImage(&w1);
@@ -427,7 +481,7 @@ static bool test_extract_match_homography_warp(const Image_t& im1, const Image_t
 
 // -- Test: ExtractAndMatchAndFindHomographyAndWarp_GPU ----
 
-static bool test_extract_match_homography_warp_gpu(const Image_t& im1, const Image_t& im2)
+static bool test_extract_match_homography_warp_gpu(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] ExtractAndMatchAndFindHomographyAndWarp_GPU" << std::endl;
 
@@ -442,8 +496,10 @@ static bool test_extract_match_homography_warp_gpu(const Image_t& im1, const Ima
     ExtractAndMatchAndFindHomographyAndWarp_GPU(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho, &w1, &w2);
     if (check_error("ExtractAndMatchAndFindHomographyAndWarp_GPU"))
     {
-        DeleteSiftData(&sd1); DeleteSiftData(&sd2);
-        FreeImage_GPU(&w1); FreeImage_GPU(&w2);
+        DeleteSiftData(&sd1);
+        DeleteSiftData(&sd2);
+        FreeImage_GPU(&w1);
+        FreeImage_GPU(&w2);
         return false;
     }
 
@@ -451,9 +507,7 @@ static bool test_extract_match_homography_warp_gpu(const Image_t& im1, const Ima
     std::cout << "  Warped size: " << w1.width_ << "x" << w1.height_ << ", stride=" << w1.stride_ << std::endl;
     print_homography(H);
 
-    bool pass = nm > 0 && homography_is_valid(H)
-             && w1.strided_img_ != nullptr && w2.strided_img_ != nullptr
-             && w1.width_ > 0 && w1.height_ > 0 && w1.stride_ > 0;
+    bool pass = nm > 0 && homography_is_valid(H) && w1.strided_img_ != nullptr && w2.strided_img_ != nullptr && w1.width_ > 0 && w1.height_ > 0 && w1.stride_ > 0;
     std::cout << "  " << (pass ? "[PASS]" : "[FAIL]") << std::endl;
 
     FreeImage_GPU(&w1);
@@ -465,12 +519,12 @@ static bool test_extract_match_homography_warp_gpu(const Image_t& im1, const Ima
 
 // -- Helpers for model-type comparison --------------------
 
-static const char* model_name(int type)
+static const char *model_name(int type)
 {
     return type == CUSIFT_MODEL_SIMILARITY ? "SIMILARITY" : "HOMOGRAPHY";
 }
 
-static float homography_frobenius_diff(const float* A, const float* B)
+static float homography_frobenius_diff(const float *A, const float *B)
 {
     float sum = 0.0f;
     for (int i = 0; i < 9; i++)
@@ -483,7 +537,7 @@ static float homography_frobenius_diff(const float* A, const float* B)
 
 // -- Test: FindHomography with both model types ----------
 
-static bool test_find_homography_both_models(const Image_t& im1, const Image_t& im2)
+static bool test_find_homography_both_models(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] FindHomography -- compare model types" << std::endl;
 
@@ -493,16 +547,21 @@ static bool test_find_homography_both_models(const Image_t& im1, const Image_t& 
     ExtractSiftFromImage(&im1, &sd1, &eo);
     ExtractSiftFromImage(&im2, &sd2, &eo);
     MatchSiftData(&sd1, &sd2);
-    if (check_error("Extract+Match (setup)")) { DeleteSiftData(&sd1); DeleteSiftData(&sd2); return false; }
+    if (check_error("Extract+Match (setup)"))
+    {
+        DeleteSiftData(&sd1);
+        DeleteSiftData(&sd2);
+        return false;
+    }
 
     float H_homo[9], H_sim[9];
     int nm_homo = 0, nm_sim = 0;
     bool pass = true;
 
     // Run both model types
-    int models[] = { CUSIFT_MODEL_HOMOGRAPHY, CUSIFT_MODEL_SIMILARITY };
-    float* results[] = { H_homo, H_sim };
-    int* counts[] = { &nm_homo, &nm_sim };
+    int models[] = {CUSIFT_MODEL_HOMOGRAPHY, CUSIFT_MODEL_SIMILARITY};
+    float *results[] = {H_homo, H_sim};
+    int *counts[] = {&nm_homo, &nm_sim};
 
     for (int i = 0; i < 2; i++)
     {
@@ -530,9 +589,9 @@ static bool test_find_homography_both_models(const Image_t& im1, const Image_t& 
     {
         std::cout << "  Element-wise difference:" << std::endl;
         for (int r = 0; r < 3; r++)
-            std::cout << "    [" << (H_homo[r*3+0] - H_sim[r*3+0])
-                      << "  "   << (H_homo[r*3+1] - H_sim[r*3+1])
-                      << "  "   << (H_homo[r*3+2] - H_sim[r*3+2]) << "]" << std::endl;
+            std::cout << "    [" << (H_homo[r * 3 + 0] - H_sim[r * 3 + 0])
+                      << "  " << (H_homo[r * 3 + 1] - H_sim[r * 3 + 1])
+                      << "  " << (H_homo[r * 3 + 2] - H_sim[r * 3 + 2]) << "]" << std::endl;
         float frob = homography_frobenius_diff(H_homo, H_sim);
         std::cout << "  Frobenius norm of difference: " << frob << std::endl;
     }
@@ -546,7 +605,7 @@ static bool test_find_homography_both_models(const Image_t& im1, const Image_t& 
 
 // -- Test: ExtractAndMatchAndFindHomography -- both models -
 
-static bool test_extract_match_homography_both_models(const Image_t& im1, const Image_t& im2)
+static bool test_extract_match_homography_both_models(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] ExtractAndMatchAndFindHomography -- compare model types" << std::endl;
 
@@ -554,9 +613,9 @@ static bool test_extract_match_homography_both_models(const Image_t& im1, const 
     int nm_homo = 0, nm_sim = 0;
     bool pass = true;
 
-    int models[] = { CUSIFT_MODEL_HOMOGRAPHY, CUSIFT_MODEL_SIMILARITY };
-    float* results[] = { H_homo, H_sim };
-    int* counts[] = { &nm_homo, &nm_sim };
+    int models[] = {CUSIFT_MODEL_HOMOGRAPHY, CUSIFT_MODEL_SIMILARITY};
+    float *results[] = {H_homo, H_sim};
+    int *counts[] = {&nm_homo, &nm_sim};
 
     for (int i = 0; i < 2; i++)
     {
@@ -597,7 +656,7 @@ static bool test_extract_match_homography_both_models(const Image_t& im1, const 
 
 // -- Test: Full pipeline (warp) -- both models ------------
 
-static bool test_extract_match_homography_warp_both_models(const Image_t& im1, const Image_t& im2)
+static bool test_extract_match_homography_warp_both_models(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] ExtractAndMatchAndFindHomographyAndWarp -- compare model types" << std::endl;
 
@@ -605,9 +664,9 @@ static bool test_extract_match_homography_warp_both_models(const Image_t& im1, c
     int nm_homo = 0, nm_sim = 0;
     bool pass = true;
 
-    int models[] = { CUSIFT_MODEL_HOMOGRAPHY, CUSIFT_MODEL_SIMILARITY };
-    float* results[] = { H_homo, H_sim };
-    int* counts[] = { &nm_homo, &nm_sim };
+    int models[] = {CUSIFT_MODEL_HOMOGRAPHY, CUSIFT_MODEL_SIMILARITY};
+    float *results[] = {H_homo, H_sim};
+    int *counts[] = {&nm_homo, &nm_sim};
 
     for (int i = 0; i < 2; i++)
     {
@@ -628,8 +687,7 @@ static bool test_extract_match_homography_warp_both_models(const Image_t& im1, c
             std::cout << "  " << model_name(models[i]) << " -- inliers: " << *counts[i]
                       << ", warped: " << w1.width_ << "x" << w1.height_ << std::endl;
             print_homography(results[i]);
-            if (*counts[i] == 0 || !homography_is_valid(results[i])
-                || w1.host_img_ == nullptr || w1.width_ == 0)
+            if (*counts[i] == 0 || !homography_is_valid(results[i]) || w1.host_img_ == nullptr || w1.width_ == 0)
             {
                 std::cerr << "  [FAIL] " << model_name(models[i]) << " produced invalid result" << std::endl;
                 pass = false;
@@ -653,7 +711,7 @@ static bool test_extract_match_homography_warp_both_models(const Image_t& im1, c
 
 // -- Test: ExtractAndMatchAndFindHomography_Multi --------
 
-static bool test_extract_match_homography_multi(const Image_t& im1, const Image_t& im2)
+static bool test_extract_match_homography_multi(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] ExtractAndMatchAndFindHomography_Multi" << std::endl;
 
@@ -672,7 +730,7 @@ static bool test_extract_match_homography_multi(const Image_t& im1, const Image_
         int nm = 0;
 
         ExtractAndMatchAndFindHomography_Multi(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho,
-                                              num_attempts, CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS);
+                                               num_attempts, CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS);
         if (check_error("Multi (MAX_INLIERS)"))
         {
             pass = false;
@@ -704,7 +762,7 @@ static bool test_extract_match_homography_multi(const Image_t& im1, const Image_
         int nm = 0;
 
         ExtractAndMatchAndFindHomography_Multi(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho,
-                                              num_attempts, CUSIFT_HOMOGRAPHY_GOAL_MIN_EYE_DIFF);
+                                               num_attempts, CUSIFT_HOMOGRAPHY_GOAL_MIN_EYE_DIFF);
         if (check_error("Multi (MIN_EYE_DIFF)"))
         {
             pass = false;
@@ -734,7 +792,7 @@ static bool test_extract_match_homography_multi(const Image_t& im1, const Image_
         int nm = 0;
 
         ExtractAndMatchAndFindHomography_Multi(&im1, &im2, &sd1, &sd2, H, &nm, &eo, &ho,
-                                              1, CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS);
+                                               1, CUSIFT_HOMOGRAPHY_GOAL_MAX_INLIERS);
         if (check_error("Multi (single attempt)"))
         {
             pass = false;
@@ -759,7 +817,7 @@ static bool test_extract_match_homography_multi(const Image_t& im1, const Image_
 
 // -- Test: ExtractAndMatchAndFindHomography_Multi_AndWarp -
 
-static bool test_extract_match_homography_multi_warp(const Image_t& im1, const Image_t& im2)
+static bool test_extract_match_homography_multi_warp(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] ExtractAndMatchAndFindHomography_Multi_AndWarp" << std::endl;
 
@@ -788,9 +846,7 @@ static bool test_extract_match_homography_multi_warp(const Image_t& im1, const I
             std::cout << "    Inliers: " << nm << std::endl;
             std::cout << "    Warped size: " << w1.width_ << "x" << w1.height_ << std::endl;
             print_homography(H);
-            if (nm <= 0 || !homography_is_valid(H)
-                || w1.host_img_ == nullptr || w2.host_img_ == nullptr
-                || w1.width_ <= 0 || w1.height_ <= 0)
+            if (nm <= 0 || !homography_is_valid(H) || w1.host_img_ == nullptr || w2.host_img_ == nullptr || w1.width_ <= 0 || w1.height_ <= 0)
             {
                 std::cerr << "    [FAIL] invalid result" << std::endl;
                 pass = false;
@@ -825,9 +881,7 @@ static bool test_extract_match_homography_multi_warp(const Image_t& im1, const I
             std::cout << "    Inliers: " << nm << std::endl;
             std::cout << "    Warped size: " << w1.width_ << "x" << w1.height_ << std::endl;
             print_homography(H);
-            if (nm <= 0 || !homography_is_valid(H)
-                || w1.host_img_ == nullptr || w2.host_img_ == nullptr
-                || w1.width_ <= 0 || w1.height_ <= 0)
+            if (nm <= 0 || !homography_is_valid(H) || w1.host_img_ == nullptr || w2.host_img_ == nullptr || w1.width_ <= 0 || w1.height_ <= 0)
             {
                 std::cerr << "    [FAIL] invalid result" << std::endl;
                 pass = false;
@@ -860,9 +914,7 @@ static bool test_extract_match_homography_multi_warp(const Image_t& im1, const I
             std::cout << "    Inliers: " << nm << std::endl;
             std::cout << "    Warped size: " << w1.width_ << "x" << w1.height_ << std::endl;
             print_homography(H);
-            if (nm <= 0 || !homography_is_valid(H)
-                || w1.host_img_ == nullptr || w2.host_img_ == nullptr
-                || w1.width_ <= 0 || w1.height_ <= 0)
+            if (nm <= 0 || !homography_is_valid(H) || w1.host_img_ == nullptr || w2.host_img_ == nullptr || w1.width_ <= 0 || w1.height_ <= 0)
             {
                 std::cerr << "    [FAIL] invalid result" << std::endl;
                 pass = false;
@@ -880,7 +932,7 @@ static bool test_extract_match_homography_multi_warp(const Image_t& im1, const I
 
 // -- Test: VRAM estimation functions ---------------------
 
-static bool test_estimate_vram(const Image_t& im1, const Image_t& im2)
+static bool test_estimate_vram(const Image_t &im1, const Image_t &im2)
 {
     std::cout << "[TEST] VRAM Estimation Functions" << std::endl;
 
@@ -893,32 +945,52 @@ static bool test_estimate_vram(const Image_t& im1, const Image_t& im2)
     size_t extract_vram = EstimateVramExtractSift(im1.width_, im1.height_, &eo);
     std::cout << "  EstimateVramExtractSift(" << im1.width_ << "x" << im1.height_ << "): "
               << extract_vram << " bytes (" << (extract_vram / (1024.0 * 1024.0)) << " MB)" << std::endl;
-    if (extract_vram == 0) { std::cerr << "  [FAIL] extract estimate is 0" << std::endl; pass = false; }
+    if (extract_vram == 0)
+    {
+        std::cerr << "  [FAIL] extract estimate is 0" << std::endl;
+        pass = false;
+    }
 
     // EstimateVramMatchSift
     size_t match_vram = EstimateVramMatchSift(eo.max_keypoints_, eo.max_keypoints_);
     std::cout << "  EstimateVramMatchSift(" << eo.max_keypoints_ << ", " << eo.max_keypoints_ << "): "
               << match_vram << " bytes (" << (match_vram / (1024.0 * 1024.0)) << " MB)" << std::endl;
-    if (match_vram == 0) { std::cerr << "  [FAIL] match estimate is 0" << std::endl; pass = false; }
+    if (match_vram == 0)
+    {
+        std::cerr << "  [FAIL] match estimate is 0" << std::endl;
+        pass = false;
+    }
 
     // EstimateVramFindHomography
     size_t homo_vram = EstimateVramFindHomography(eo.max_keypoints_, &ho);
     std::cout << "  EstimateVramFindHomography(" << eo.max_keypoints_ << "): "
               << homo_vram << " bytes (" << (homo_vram / (1024.0 * 1024.0)) << " MB)" << std::endl;
-    if (homo_vram == 0) { std::cerr << "  [FAIL] homography estimate is 0" << std::endl; pass = false; }
+    if (homo_vram == 0)
+    {
+        std::cerr << "  [FAIL] homography estimate is 0" << std::endl;
+        pass = false;
+    }
 
     // EstimateVramWarpImages
     size_t warp_vram = EstimateVramWarpImages(im1.width_, im1.height_, im2.width_, im2.height_);
     std::cout << "  EstimateVramWarpImages(" << im1.width_ << "x" << im1.height_
               << ", " << im2.width_ << "x" << im2.height_ << "): "
               << warp_vram << " bytes (" << (warp_vram / (1024.0 * 1024.0)) << " MB)" << std::endl;
-    if (warp_vram == 0) { std::cerr << "  [FAIL] warp estimate is 0" << std::endl; pass = false; }
+    if (warp_vram == 0)
+    {
+        std::cerr << "  [FAIL] warp estimate is 0" << std::endl;
+        pass = false;
+    }
 
     // EstimateVramFullPipeline
     size_t full_vram = EstimateVramFullPipeline(im1.width_, im1.height_, im2.width_, im2.height_, &eo, &ho);
     std::cout << "  EstimateVramFullPipeline: "
               << full_vram << " bytes (" << (full_vram / (1024.0 * 1024.0)) << " MB)" << std::endl;
-    if (full_vram == 0) { std::cerr << "  [FAIL] full pipeline estimate is 0" << std::endl; pass = false; }
+    if (full_vram == 0)
+    {
+        std::cerr << "  [FAIL] full pipeline estimate is 0" << std::endl;
+        pass = false;
+    }
 
     // Sanity: full pipeline should be >= extraction (since extraction is typically the peak)
     if (full_vram < extract_vram)
@@ -943,7 +1015,7 @@ static bool test_estimate_vram(const Image_t& im1, const Image_t& im2)
 
 // -- Main ------------------------------------------------
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
     if (argc != 3)
     {
@@ -951,8 +1023,8 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    const char* image1_path = argv[1];
-    const char* image2_path = argv[2];
+    const char *image1_path = argv[1];
+    const char *image2_path = argv[2];
 
     std::vector<float> image1, image2;
     int width1, height1, width2, height2;
@@ -966,14 +1038,15 @@ int main(int argc, char* argv[])
     std::cout << "Image 2: " << image2_path << " (" << width2 << "x" << height2 << ")" << std::endl;
     std::cout << std::endl;
 
-    Image_t im1 = { image1.data(), width1, height1 };
-    Image_t im2 = { image2.data(), width2, height2 };
+    Image_t im1 = {image1.data(), width1, height1};
+    Image_t im2 = {image2.data(), width2, height2};
 
     InitializeCudaSift();
 
     int passed = 0, failed = 0, total = 0;
 
-    auto run = [&](bool result) { total++; result ? passed++ : failed++; std::cout << std::endl; };
+    auto run = [&](bool result)
+    { total++; result ? passed++ : failed++; std::cout << std::endl; };
 
     run(test_extract(im1, im2));
     run(test_match(im1, im2));
@@ -998,10 +1071,3 @@ int main(int argc, char* argv[])
 
     return failed > 0 ? 1 : 0;
 }
-
-
-
-
-
-
-

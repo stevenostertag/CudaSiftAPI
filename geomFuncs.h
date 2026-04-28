@@ -2,13 +2,14 @@
 #define GEOMFUNCS_H
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 #include "cusift.h"
 
-int ImproveHomography(SiftData *data, float *homography, int numLoops,
-                      float minScore, float maxAmbiguity, float thresh);
+    int ImproveHomography(SiftData *data, float *homography, int numLoops,
+                          float minScore, float maxAmbiguity, float thresh);
 
 #ifdef __cplusplus
 }

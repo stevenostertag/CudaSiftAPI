@@ -235,9 +235,9 @@ __global__ void ExtractSiftDescriptorsCONSTNew(cudaTextureObject_t texObj, SiftP
         tsum1 = min(buffer[idx] * rsqrtf(tsum1), 0.2f);
 
         __syncthreads(); // Ensure all threads have read sums[] before any thread overwrites it
-        
+
         // --- RootSIFT Modification ---
-        // Instead of L2 normalizing the clamped values again, we L1 normalize them 
+        // Instead of L2 normalizing the clamped values again, we L1 normalize them
         // and take the square root. Since tsum1 >= 0, sum is just tsum1.
         sum = tsum1;
         for (int i = 16; i > 0; i /= 2)
@@ -248,7 +248,7 @@ __global__ void ExtractSiftDescriptorsCONSTNew(cudaTextureObject_t texObj, SiftP
 
         float tsum2 = sums[0] + sums[1] + sums[2] + sums[3];
         float *desc = d_sift[bx].data;
-        
+
         // The RootSIFT descriptor is the square root of the L1-normalized clamped vector.
         // We add a small epsilon (1e-8f) to prevent division by zero.
         desc[idx] = sqrtf(tsum1 / (tsum2 + 1e-8f));
@@ -507,7 +507,7 @@ __global__ void FindPointsMultiNew(float *d_Data0, SiftPoint *d_Sift, int width,
             float dval = 0.5f * (dx * pdx + dy * pdy + ds * pds);
             int maxPts = d_MaxNumPoints;
             float sc = powf(2.0f, (float)scale / NUM_SCALES) * exp2f(pds * factor);
-                        if (sc >= lowestScale && sc <= highestScale)
+            if (sc >= lowestScale && sc <= highestScale)
             {
                 atomicMax(&d_PointCounter[2 * octave + 0], d_PointCounter[2 * octave - 1]);
                 unsigned int idx = atomicInc(&d_PointCounter[2 * octave + 0], 0x7fffffff);
@@ -521,7 +521,6 @@ __global__ void FindPointsMultiNew(float *d_Data0, SiftPoint *d_Sift, int width,
                     d_Sift[idx].subsampling = subsampling;
                 }
             }
-
         }
     }
 }

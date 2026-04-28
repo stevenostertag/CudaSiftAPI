@@ -99,19 +99,19 @@ void ExtractSift(SiftData *siftData, CudaImage *img, int numOctaves, float initB
     SiftDeviceContext ctx;
     ctx.maxNumPoints = siftData->maxPts;
 
-    const size_t counterBytes   = (8 * 2 + 1) * sizeof(unsigned int);
-    const size_t laplaceBytes   = 8 * 12 * 16 * sizeof(float);
+    const size_t counterBytes = (8 * 2 + 1) * sizeof(unsigned int);
+    const size_t laplaceBytes = 8 * 12 * 16 * sizeof(float);
     const size_t scaleDownBytes = 5 * sizeof(float);
-    const size_t lowPassBytes   = (2 * LOWPASS_R + 1) * sizeof(float);
-    const size_t totalBytes     = counterBytes + laplaceBytes + scaleDownBytes + lowPassBytes;
+    const size_t lowPassBytes = (2 * LOWPASS_R + 1) * sizeof(float);
+    const size_t totalBytes = counterBytes + laplaceBytes + scaleDownBytes + lowPassBytes;
 
     DevicePtrGuard<char> contextMemGuard;
     safeCall(cudaMalloc((void **)&contextMemGuard.getRef(), totalBytes));
-    char *base            = contextMemGuard.get();
-    ctx.d_pointCounter    = (unsigned int *)base;
-    ctx.d_laplaceKernel   = (float *)(base + counterBytes);
+    char *base = contextMemGuard.get();
+    ctx.d_pointCounter = (unsigned int *)base;
+    ctx.d_laplaceKernel = (float *)(base + counterBytes);
     ctx.d_scaleDownKernel = (float *)(base + counterBytes + laplaceBytes);
-    ctx.d_lowPassKernel   = (float *)(base + counterBytes + laplaceBytes + scaleDownBytes);
+    ctx.d_lowPassKernel = (float *)(base + counterBytes + laplaceBytes + scaleDownBytes);
 
     safeCall(cudaMemset(ctx.d_pointCounter, 0, counterBytes));
 
@@ -403,9 +403,8 @@ void SuppressEmbeddedPoints(SiftData *data, float radiusScale)
     std::vector<int> order(n);
     for (int i = 0; i < n; i++)
         order[i] = i;
-    std::sort(order.begin(), order.end(), [&](int a, int b) {
-        return pts[a].scale > pts[b].scale;
-    });
+    std::sort(order.begin(), order.end(), [&](int a, int b)
+              { return pts[a].scale > pts[b].scale; });
 
     // --- Spatial grid for fast neighbour lookup -------------------------
     // Cell size = radius of the largest keypoint so that we only need to
@@ -413,17 +412,22 @@ void SuppressEmbeddedPoints(SiftData *data, float radiusScale)
     float maxScale = pts[order[0]].scale;
     float cellSize = radiusScale * maxScale;
     if (cellSize < 1e-6f)
-        return;  // degenerate – all scales are ~0
+        return; // degenerate – all scales are ~0
 
     // Find bounding box
     float minX = pts[0].xpos, maxX = minX;
     float minY = pts[0].ypos, maxY = minY;
-    for (int i = 1; i < n; i++) {
+    for (int i = 1; i < n; i++)
+    {
         float x = pts[i].xpos, y = pts[i].ypos;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
+        if (x < minX)
+            minX = x;
+        if (x > maxX)
+            maxX = x;
+        if (y < minY)
+            minY = y;
+        if (y > maxY)
+            maxY = y;
     }
 
     int gridW = std::max(1, (int)((maxX - minX) / cellSize) + 1);
@@ -434,9 +438,11 @@ void SuppressEmbeddedPoints(SiftData *data, float radiusScale)
 
     // Map from grid cell → list of point indices (in scale-descending order)
     std::vector<std::vector<int>> grid;
-    if (useGrid) {
+    if (useGrid)
+    {
         grid.resize((size_t)gridW * gridH);
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < n; i++)
+        {
             int idx = order[i];
             int cx = (int)((pts[idx].xpos - minX) / cellSize);
             int cy = (int)((pts[idx].ypos - minY) / cellSize);
@@ -449,7 +455,8 @@ void SuppressEmbeddedPoints(SiftData *data, float radiusScale)
     // --- Suppression pass ------------------------------------------------
     std::vector<bool> suppressed(n, false);
 
-    for (int ii = 0; ii < n; ii++) {
+    for (int ii = 0; ii < n; ii++)
+    {
         int i = order[ii];
         if (suppressed[i])
             continue;
@@ -459,7 +466,8 @@ void SuppressEmbeddedPoints(SiftData *data, float radiusScale)
         float ri = radiusScale * pts[i].scale;
         float ri2 = ri * ri;
 
-        if (useGrid) {
+        if (useGrid)
+        {
             int cx = (int)((xi - minX) / cellSize);
             int cy = (int)((yi - minY) / cellSize);
             cx = std::min(cx, gridW - 1);
@@ -474,9 +482,12 @@ void SuppressEmbeddedPoints(SiftData *data, float radiusScale)
             int gy0 = std::max(0, cy - reach);
             int gy1 = std::min(gridH - 1, cy + reach);
 
-            for (int gy = gy0; gy <= gy1; gy++) {
-                for (int gx = gx0; gx <= gx1; gx++) {
-                    for (int j : grid[(size_t)gy * gridW + gx]) {
+            for (int gy = gy0; gy <= gy1; gy++)
+            {
+                for (int gx = gx0; gx <= gx1; gx++)
+                {
+                    for (int j : grid[(size_t)gy * gridW + gx])
+                    {
                         if (j == i || suppressed[j])
                             continue;
                         // j must be smaller-or-equal scale (processed after i)
@@ -489,9 +500,12 @@ void SuppressEmbeddedPoints(SiftData *data, float radiusScale)
                     }
                 }
             }
-        } else {
+        }
+        else
+        {
             // Flat scan fallback
-            for (int jj = ii + 1; jj < n; jj++) {
+            for (int jj = ii + 1; jj < n; jj++)
+            {
                 int j = order[jj];
                 if (suppressed[j])
                     continue;
@@ -505,8 +519,10 @@ void SuppressEmbeddedPoints(SiftData *data, float radiusScale)
 
     // --- Compact ---------------------------------------------------------
     int dst = 0;
-    for (int i = 0; i < n; i++) {
-        if (!suppressed[i]) {
+    for (int i = 0; i < n; i++)
+    {
+        if (!suppressed[i])
+        {
             if (dst != i)
                 pts[dst] = pts[i];
             dst++;

@@ -69,7 +69,7 @@ void CudaImage_Allocate(CudaImage *img, int w, int h, int p, bool host, float *d
 void CudaImage_Download(CudaImage *img)
 {
     int p = sizeof(float) * img->pitch;
-    //if (img->d_data != NULL && img->h_data != NULL)
+    // if (img->d_data != NULL && img->h_data != NULL)
     safeCall(cudaMemcpy2D(img->d_data, p, img->h_data, sizeof(float) * img->width, sizeof(float) * img->width, img->height, cudaMemcpyDefault));
 }
 
@@ -223,4 +223,3 @@ void CudaImage_Normalize(CudaImage *img)
     NormalizeKernel<<<blocks, threads>>>(img->d_data, width, pitch, height, minVal, invRange);
     checkMsg("CudaImage_Normalize() execution failed\n");
 }
-
