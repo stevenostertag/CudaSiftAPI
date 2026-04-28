@@ -1,0 +1,7 @@
+optuna
+Pillow
+scipy
+tqdm
+psutil
+joblib
+numpy

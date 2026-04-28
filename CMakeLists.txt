@@ -19,8 +19,8 @@ option(CUSIFT_BUILD_SHARED "Build cusift as a shared library instead of static"
 option(CUSIFT_USE_FAST_MATH "Compile CUDA code with --use_fast_math" OFF)
 option(CUSIFT_ALL_CUDA_ARCHS "Build for all supported CUDA architectures" OFF)
 
-# ── OpenMP ───────────────────────────────────────────────
-find_package(OpenMP COMPONENTS C CXX)
+# # ── OpenMP ───────────────────────────────────────────────
+# find_package(OpenMP COMPONENTS C CXX)
 
 # ── CUDA architecture ─────────────────────────────────── Override with
 # -DCMAKE_CUDA_ARCHITECTURES="75;86" etc.

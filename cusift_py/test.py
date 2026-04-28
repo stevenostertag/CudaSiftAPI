@@ -1,270 +1,306 @@
-from __future__ import annotations
+"""
+test.py - Exercise the cusift Python API: extract, match, homography, warp.
 
-import argparse
-import json
+Usage:
+    cd cusift_py
+    python test.py
+"""
+
+import sys
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
-from cusift import (
-    CuSift,
-    CuSiftError,
-    HOMOGRAPHY_GOAL_MAX_INLIERS,
-    HOMOGRAPHY_GOAL_MIN_EYE_DIFF,
-)
+# Ensure the cusift package is importable from this directory
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from cusift import CuSift, ExtractOptions, HomographyOptions
 
-def _load_grayscale_float32(path: Path) -> np.ndarray:
-    img = Image.open(path).convert("L")
-    arr = np.asarray(img, dtype=np.float32)
-    return np.ascontiguousarray(arr)
-
-
-def _save_image(path: Path, arr: np.ndarray) -> None:
-    clean = np.nan_to_num(arr, nan=0.0)
-    clean = np.clip(clean, 0, 255).astype(np.uint8)
-    Image.fromarray(clean, mode="L").save(path)
-
-
-def _serialize_keypoint(kp: object) -> dict:
-    return {
-        "x": float(kp.x),
-        "y": float(kp.y),
-        "scale": float(kp.scale),
-        "sharpness": float(kp.sharpness),
-        "edgeness": float(kp.edgeness),
-        "orientation": float(kp.orientation),
-        "score": float(kp.score),
-        "ambiguity": float(kp.ambiguity),
-        "match": int(kp.match),
-        "match_x": float(kp.match_x),
-        "match_y": float(kp.match_y),
-        "match_error": float(kp.match_error),
-        "subsampling": float(kp.subsampling),
-    }
-
-
-def _save_keypoints_and_descriptors(outdir: Path, keypoints: list, suffix: str) -> None:
-    keypoints_path = outdir / f"keypoints_{suffix}.json"
-    descriptors_path = outdir / f"descriptors_{suffix}.npy"
-
-    payload = [_serialize_keypoint(kp) for kp in keypoints]
-    with keypoints_path.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
-
-    if keypoints:
-        descriptors = np.stack([np.asarray(kp.descriptor, dtype=np.float32) for kp in keypoints], axis=0)
-    else:
-        descriptors = np.empty((0, 128), dtype=np.float32)
-    np.save(descriptors_path, descriptors)
-
-
-def _save_matches(outdir: Path, matches: list) -> None:
-    matches_path = outdir / "matches.json"
-    payload = [
-        {
-            "query_index": int(m.query_index),
-            "match_index": int(m.match_index),
-            "x1": float(m.x1),
-            "y1": float(m.y1),
-            "x2": float(m.x2),
-            "y2": float(m.y2),
-            "error": float(m.error),
-            "score": float(m.score),
-            "ambiguity": float(m.ambiguity),
-        }
-        for m in matches
-    ]
-    with matches_path.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
-
-
-def _save_homography(outdir: Path, homography: np.ndarray) -> None:
-    np.save(outdir / "homography.npy", np.asarray(homography, dtype=np.float32))
-
-
-def _ensure_dir(path: Path) -> Path:
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def _goal_from_cli(goal: str) -> int:
-    if goal == "max_inliers":
-        return HOMOGRAPHY_GOAL_MAX_INLIERS
-    if goal == "min_eye_diff":
-        return HOMOGRAPHY_GOAL_MIN_EYE_DIFF
-    raise ValueError(f"Unknown goal: {goal}")
-
-
-def _print_stage(stage: str) -> None:
-    print(f"\n=== {stage} ===")
+# -- Paths --------------------------------------------------------------------
+DATA_DIR = Path(__file__).resolve().parent.parent / "local" / "data"
+IMG1 = DATA_DIR / "img1.png"
+IMG2 = DATA_DIR / "img2.png"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Run CuSift Python API smoke/integration tests and save outputs."
-    )
-    parser.add_argument("i1", type=Path, help="Path to the first image")
-    parser.add_argument("i2", type=Path, help="Path to the second image")
-    parser.add_argument("outdir", type=Path, help="Output directory")
-    parser.add_argument(
-        "--dll",
-        type=Path,
-        default=None,
-        help="Optional path to cusift shared library (cusift.dll / libcusift.so)",
-    )
-    parser.add_argument(
-        "--num-homography-attempts",
-        type=int,
-        default=5,
-        help="Number of attempts for multi-homography APIs",
-    )
-    parser.add_argument(
-        "--homography-goal",
-        choices=["max_inliers", "min_eye_diff"],
-        default="max_inliers",
-        help="Selection criterion for multi-homography APIs",
-    )
-    parser.add_argument(
-        "--cpu-warp",
-        action="store_true",
-        help="Use CPU implementation for warp_images instead of GPU",
-    )
-    args = parser.parse_args()
+    print("=" * 60)
+    print("CuSIFT Python API Test")
+    print("=" * 60)
 
-    if not args.i1.exists() or not args.i2.exists():
-        raise FileNotFoundError("Input image path does not exist")
+    # -- Initialise -------------------------------------------------------
+    sift = CuSift()
+    print("[OK] CuSift initialised\n")
 
-    out_root = _ensure_dir(args.outdir)
-    goal = _goal_from_cli(args.homography_goal)
+    # -- Extract ----------------------------------------------------------
+    extract_opts = ExtractOptions(
+        thresh=2.0,
+        lowest_scale=8.0,
+        edge_thresh=10.0,
+        init_blur=1.0,
+        max_keypoints=32768,
+        num_octaves=5,
+    )
 
-    print("Loading input images as grayscale float32 arrays...")
-    img1 = _load_grayscale_float32(args.i1)
-    img2 = _load_grayscale_float32(args.i2)
-    print(f"i1 shape: {img1.shape}, dtype: {img1.dtype}")
-    print(f"i2 shape: {img2.shape}, dtype: {img2.dtype}")
+    print(f"Extracting SIFT features from {IMG1.name} ...")
+    kp1 = sift.extract(str(IMG1), options=extract_opts)
+    print(f"  → {len(kp1)} keypoints")
 
-    sift = CuSift(dll_path=args.dll)
+    print(f"Extracting SIFT features from {IMG2.name} ...")
+    kp2 = sift.extract(str(IMG2), options=extract_opts)
+    print(f"  → {len(kp2)} keypoints")
+
+    if len(kp1) == 0 or len(kp2) == 0:
+        print("ERROR: No keypoints extracted - cannot continue.")
+        sys.exit(1)
+
+    # Print a sample keypoint
+    sample = kp1[0]
+    print(f"\n  Sample keypoint: x={sample.x:.1f}  y={sample.y:.1f}  "
+          f"scale={sample.scale:.3f}  orientation={sample.orientation:.3f}")
+    print(f"  Descriptor (first 8): {sample.descriptor[:8]}")
+
+    # -- Match ------------------------------------------------------------
+    print("\nMatching features ...")
+    matches = sift.match(kp1, kp2)
+    print(f"  → {len(matches)} correspondences")
+
+    if len(matches) == 0:
+        print("ERROR: No matches found - cannot continue.")
+        sys.exit(1)
+
+    # Print a few matches
+    for m in matches[:5]:
+        print(f"    kp1[{m.query_index}] ({m.x1:.1f}, {m.y1:.1f}) "
+              f"↔ kp2[{m.match_index}] ({m.x2:.1f}, {m.y2:.1f})  "
+              f"err={m.error:.4f}")
+
+    # -- Find Homography --------------------------------------------------
+    print("\nFinding homography ...")
+    homo_opts = HomographyOptions(
+        num_loops=10000,
+        min_score=0.0,
+        max_ambiguity=0.80,
+        thresh=5.0,
+        improve_num_loops=5,
+        improve_min_score=0.0,
+        improve_max_ambiguity=0.80,
+        improve_thresh=3.0,
+        seed=42,
+    )
+    H, n_inliers = sift.find_homography(kp1, options=homo_opts)
+    print(f"  → {n_inliers} inliers")
+    print("  Homography:")
+    for r in range(3):
+        vals = " ".join(f"{H[r, c]:12.6f}" for c in range(3))
+        print(f"    [{vals}]")
+
+    # -- Warp Images ------------------------------------------------------
+    print("\nWarping images ...")
+    warped1, warped2 = sift.warp_images(str(IMG1), str(IMG2), H, use_gpu=True)
+    print(f"  warped1 shape: {warped1.shape}  dtype: {warped1.dtype}")
+    print(f"  warped2 shape: {warped2.shape}  dtype: {warped2.dtype}")
+
+    # Optionally save warped images as PNGs
+    try:
+        from PIL import Image
+
+        out1 = DATA_DIR / "img1_warped_py.png"
+        out2 = DATA_DIR / "img2_warped_py.png"
+        # NaN pixels (out-of-bounds padding from the warp kernel) → 0 (black)
+        # Force all non-NaN values to be clipped to 1-255, and then set NaN values to 0
+        warped1 = np.nan_to_num(np.clip(warped1, 1, 255), nan=0.0)
+        warped2 = np.nan_to_num(np.clip(warped2, 1, 255), nan=0.0)
+        Image.fromarray(warped1.astype(np.uint8), mode="L").save(out1)
+        Image.fromarray(warped2.astype(np.uint8), mode="L").save(out2)
+        print(f"\n  Saved warped images to:\n    {out1}\n    {out2}")
+    except ImportError:
+        print("\n  (Pillow not installed - skipping warped image save)")
+    except Exception as e:
+        print(f"\n  Error saving warped images: {e}")
+
+    # -- Cleanup ----------------------------------------------------------
+    kp1.free()
+    kp2.free()
+
+    # =====================================================================
+    # Test extract_and_match → find_homography → warp_images pipeline
+    # =====================================================================
+    print("\n" + "=" * 60)
+    print("Testing extract_and_match combo pipeline")
+    print("=" * 60)
+
+    print(f"\nExtracting & matching in one call ...")
+    kp1b, kp2b, matches_b = sift.extract_and_match(
+        str(IMG1), str(IMG2), options=extract_opts,
+    )
+    print(f"  → {len(kp1b)} keypoints from {IMG1.name}")
+    print(f"  → {len(kp2b)} keypoints from {IMG2.name}")
+    print(f"  → {len(matches_b)} correspondences")
+
+    if matches_b:
+        for m in matches_b[:5]:
+            print(f"    kp1[{m.query_index}] ({m.x1:.1f}, {m.y1:.1f}) "
+                  f"↔ kp2[{m.match_index}] ({m.x2:.1f}, {m.y2:.1f})  "
+                  f"err={m.error:.4f}")
+
+    # -- Find Homography (combo) ------------------------------------------
+    print("\nFinding homography (combo) ...")
+    H_b, n_inliers_b = sift.find_homography(kp1b, options=homo_opts)
+    print(f"  → {n_inliers_b} inliers")
+    print("  Homography:")
+    for r in range(3):
+        vals = " ".join(f"{H_b[r, c]:12.6f}" for c in range(3))
+        print(f"    [{vals}]")
+
+    # -- Warp Images (combo) ----------------------------------------------
+    print("\nWarping images (combo) ...")
+    warped1b, warped2b = sift.warp_images(str(IMG1), str(IMG2), H_b, use_gpu=True)
+    print(f"  warped1 shape: {warped1b.shape}  dtype: {warped1b.dtype}")
+    print(f"  warped2 shape: {warped2b.shape}  dtype: {warped2b.dtype}")
 
     try:
-        _print_stage("extract + match + find_homography + warp_images")
-        op1 = _ensure_dir(out_root / "extract_match_find_homography_warp")
-        kp1 = sift.extract(img1)
-        kp2 = sift.extract(img2)
-        try:
-            _save_keypoints_and_descriptors(op1, kp1, "i1")
-            _save_keypoints_and_descriptors(op1, kp2, "i2")
+        from PIL import Image as PILImage
 
-            matches = sift.match(kp1, kp2)
-            _save_matches(op1, matches)
+        out1b = DATA_DIR / "img1_warped_combo_py.png"
+        out2b = DATA_DIR / "img2_warped_combo_py.png"
+        warped1b = np.nan_to_num(np.clip(warped1b, 1, 255), nan=0.0)
+        warped2b = np.nan_to_num(np.clip(warped2b, 1, 255), nan=0.0)
+        PILImage.fromarray(warped1b.astype(np.uint8), mode="L").save(out1b)
+        PILImage.fromarray(warped2b.astype(np.uint8), mode="L").save(out2b)
+        print(f"\n  Saved combo warped images to:\n    {out1b}\n    {out2b}")
+    except ImportError:
+        print("\n  (Pillow not installed - skipping warped image save)")
+    except Exception as e:
+        print(f"\n  Error saving combo warped images: {e}")
 
-            H, n_inliers = sift.find_homography(kp1)
-            _save_homography(op1, H)
-            print(f"Homography:\n{H}\nInliers: {n_inliers}")
+    kp1b.free()
+    kp2b.free()
 
-            warped1, warped2 = sift.warp_images(img1, img2, H, use_gpu=not args.cpu_warp)
-            _save_image(op1 / "warped_i1.png", warped1)
-            _save_image(op1 / "warped_i2.png", warped2)
+    # =====================================================================
+    # Test extract_and_match_and_find_homography → warp_images pipeline
+    # =====================================================================
+    print("\n" + "=" * 60)
+    print("Testing extract_and_match_and_find_homography combo pipeline")
+    print("=" * 60)
 
-            print(f"kp1={len(kp1)}, kp2={len(kp2)}, matches={len(matches)}, inliers={n_inliers}")
-        finally:
-            kp1.free()
-            kp2.free()
+    print(f"\nExtracting, matching & finding homography in one call ...")
+    kp1c, kp2c, matches_c, H_c, n_inliers_c = sift.extract_and_match_and_find_homography(
+        str(IMG1), str(IMG2),
+        extract_options=extract_opts,
+        homography_options=homo_opts,
+    )
+    print(f"  → {len(kp1c)} keypoints from {IMG1.name}")
+    print(f"  → {len(kp2c)} keypoints from {IMG2.name}")
+    print(f"  → {len(matches_c)} correspondences")
+    print(f"  → {n_inliers_c} inliers")
+    print("  Homography:")
+    for r in range(3):
+        vals = " ".join(f"{H_c[r, c]:12.6f}" for c in range(3))
+        print(f"    [{vals}]")
 
-        _print_stage("extract_and_match")
-        op2 = _ensure_dir(out_root / "extract_and_match")
-        kp1, kp2, matches = sift.extract_and_match(img1, img2)
-        try:
-            _save_keypoints_and_descriptors(op2, kp1, "i1")
-            _save_keypoints_and_descriptors(op2, kp2, "i2")
-            _save_matches(op2, matches)
-            print(f"kp1={len(kp1)}, kp2={len(kp2)}, matches={len(matches)}")
-        finally:
-            kp1.free()
-            kp2.free()
+    if matches_c:
+        for m in matches_c[:5]:
+            print(f"    kp1[{m.query_index}] ({m.x1:.1f}, {m.y1:.1f}) "
+                  f"↔ kp2[{m.match_index}] ({m.x2:.1f}, {m.y2:.1f})  "
+                  f"err={m.error:.4f}")
 
-        _print_stage("extract_and_match_and_find_homography")
-        op3 = _ensure_dir(out_root / "extract_and_match_and_find_homography")
-        kp1, kp2, matches, H, n_inliers = sift.extract_and_match_and_find_homography(img1, img2)
-        try:
-            _save_keypoints_and_descriptors(op3, kp1, "i1")
-            _save_keypoints_and_descriptors(op3, kp2, "i2")
-            _save_matches(op3, matches)
-            _save_homography(op3, H)
-            print(f"kp1={len(kp1)}, kp2={len(kp2)}, matches={len(matches)}, inliers={n_inliers}")
-        finally:
-            kp1.free()
-            kp2.free()
+    # -- Warp Images (combo homography) -----------------------------------
+    print("\nWarping images (combo homography) ...")
+    warped1c, warped2c = sift.warp_images(str(IMG1), str(IMG2), H_c, use_gpu=True)
+    print(f"  warped1 shape: {warped1c.shape}  dtype: {warped1c.dtype}")
+    print(f"  warped2 shape: {warped2c.shape}  dtype: {warped2c.dtype}")
 
-        _print_stage("extract_and_match_and_find_homography_multi")
-        op4 = _ensure_dir(out_root / "extract_and_match_and_find_homography_multi")
-        kp1, kp2, matches, H, n_inliers = sift.extract_and_match_and_find_homography_multi(
-            img1,
-            img2,
-            num_homography_attempts=args.num_homography_attempts,
-            homography_goal=goal,
+    try:
+        from PIL import Image as PILImg
+
+        out1c = DATA_DIR / "img1_warped_combo_homog_py.png"
+        out2c = DATA_DIR / "img2_warped_combo_homog_py.png"
+        warped1c = np.nan_to_num(np.clip(warped1c, 1, 255), nan=0.0)
+        warped2c = np.nan_to_num(np.clip(warped2c, 1, 255), nan=0.0)
+        PILImg.fromarray(warped1c.astype(np.uint8), mode="L").save(out1c)
+        PILImg.fromarray(warped2c.astype(np.uint8), mode="L").save(out2c)
+        print(f"\n  Saved combo homography warped images to:\n    {out1c}\n    {out2c}")
+    except ImportError:
+        print("\n  (Pillow not installed - skipping warped image save)")
+    except Exception as e:
+        print(f"\n  Error saving combo homography warped images: {e}")
+
+    kp1c.free()
+    kp2c.free()
+
+    # =====================================================================
+    # Test full pipeline: extract_and_match_and_find_homography_and_warp
+    # =====================================================================
+    print("\n" + "=" * 60)
+    print("Testing full pipeline (extract+match+homography+warp)")
+    print("=" * 60)
+
+    print(f"\nPreloading images as numpy arrays ...")
+    from PIL import Image as PILPreload
+    img1_arr = np.asarray(PILPreload.open(IMG1).convert("L"), dtype=np.float32)
+    img2_arr = np.asarray(PILPreload.open(IMG2).convert("L"), dtype=np.float32)
+    print(f"  img1: {img1_arr.shape}  img2: {img2_arr.shape}")
+
+    print("Running full pipeline in one call ...")
+    import time
+    start = time.perf_counter()
+    kp1d, kp2d, matches_d, H_d, n_inliers_d, warped1d, warped2d = (
+        sift.extract_and_match_and_find_homography_and_warp(
+            img1_arr, img2_arr,
+            extract_options=extract_opts,
+            homography_options=homo_opts,
         )
-        print(f"Homography:\n{H}\nInliers: {n_inliers}")
-        try:
-            _save_keypoints_and_descriptors(op4, kp1, "i1")
-            _save_keypoints_and_descriptors(op4, kp2, "i2")
-            _save_matches(op4, matches)
-            _save_homography(op4, H)
-            print(f"kp1={len(kp1)}, kp2={len(kp2)}, matches={len(matches)}, inliers={n_inliers}")
-        finally:
-            kp1.free()
-            kp2.free()
+    )
+    end = time.perf_counter()
+    print(f"  Full pipeline execution time: {end - start:.4f} seconds")
+    print(f"  \u2192 {len(kp1d)} keypoints from {IMG1.name}")
+    print(f"  \u2192 {len(kp2d)} keypoints from {IMG2.name}")
+    print(f"  \u2192 {len(matches_d)} correspondences")
+    print(f"  \u2192 {n_inliers_d} inliers")
+    print("  Homography:")
+    for r in range(3):
+        vals = " ".join(f"{H_d[r, c]:12.6f}" for c in range(3))
+        print(f"    [{vals}]")
+    print(f"  warped1 shape: {warped1d.shape}  dtype: {warped1d.dtype}")
+    print(f"  warped2 shape: {warped2d.shape}  dtype: {warped2d.dtype}")
 
-        _print_stage("extract_and_match_and_find_homography_and_warp")
-        op5 = _ensure_dir(out_root / "extract_and_match_and_find_homography_and_warp")
-        kp1, kp2, matches, H, n_inliers, warped1, warped2 = (
-            sift.extract_and_match_and_find_homography_and_warp(img1, img2)
-        )
-        print(f"Homography:\n{H}\nInliers: {n_inliers}")
-        try:
-            _save_keypoints_and_descriptors(op5, kp1, "i1")
-            _save_keypoints_and_descriptors(op5, kp2, "i2")
-            _save_matches(op5, matches)
-            _save_homography(op5, H)
-            _save_image(op5 / "warped_i1.png", warped1)
-            _save_image(op5 / "warped_i2.png", warped2)
-            print(f"kp1={len(kp1)}, kp2={len(kp2)}, matches={len(matches)}, inliers={n_inliers}")
-        finally:
-            kp1.free()
-            kp2.free()
+    if matches_d:
+        for m in matches_d[:5]:
+            print(f"    kp1[{m.query_index}] ({m.x1:.1f}, {m.y1:.1f}) "
+                  f"\u2194 kp2[{m.match_index}] ({m.x2:.1f}, {m.y2:.1f})  "
+                  f"err={m.error:.4f}")
 
-        _print_stage("extract_and_match_and_find_homography_multi_and_warp")
-        op6 = _ensure_dir(out_root / "extract_and_match_and_find_homography_multi_and_warp")
-        kp1, kp2, matches, H, n_inliers, warped1, warped2 = (
-            sift.extract_and_match_and_find_homography_multi_and_warp(
-                img1,
-                img2,
-                num_homography_attempts=args.num_homography_attempts,
-                homography_goal=goal,
-            )
-        )
-        print(f"Homography:\n{H}\nInliers: {n_inliers}")
-        try:
-            _save_keypoints_and_descriptors(op6, kp1, "i1")
-            _save_keypoints_and_descriptors(op6, kp2, "i2")
-            _save_matches(op6, matches)
-            _save_homography(op6, H)
-            _save_image(op6 / "warped_i1.png", warped1)
-            _save_image(op6 / "warped_i2.png", warped2)
-            print(f"kp1={len(kp1)}, kp2={len(kp2)}, matches={len(matches)}, inliers={n_inliers}")
-        finally:
-            kp1.free()
-            kp2.free()
+    try:
+        from PIL import Image as PILFull
 
-    except CuSiftError as exc:
-        location = f" ({exc.filename}:{exc.line})" if exc.filename else ""
-        raise RuntimeError(f"CuSiftError{location}: {exc}") from exc
+        out1d = DATA_DIR / "img1_warped_full_pipeline_py.png"
+        out2d = DATA_DIR / "img2_warped_full_pipeline_py.png"
+        warped1d = np.nan_to_num(np.clip(warped1d, 1, 255), nan=0.0)
+        warped2d = np.nan_to_num(np.clip(warped2d, 1, 255), nan=0.0)
+        PILFull.fromarray(warped1d.astype(np.uint8), mode="L").save(out1d)
+        PILFull.fromarray(warped2d.astype(np.uint8), mode="L").save(out2d)
+        print(f"\n  Saved full-pipeline warped images to:\n    {out1d}\n    {out2d}")
+    except ImportError:
+        print("\n  (Pillow not installed - skipping warped image save)")
+    except Exception as e:
+        print(f"\n  Error saving full-pipeline warped images: {e}")
 
-    print(f"\nDone. Results saved under: {out_root}")
+    kp1d.free()
+    kp2d.free()
+
+    print("\n" + "=" * 60)
+    print("All tests passed!")
+    print("=" * 60)
+
+    
+    # Draw keypoints on the first image and save as PNG (for visual verification)
+    sift.draw_keypoints(str(IMG1), kp1, str(DATA_DIR / "img1_kp_py.png"))
+    sift.draw_keypoints(str(IMG2), kp2, str(DATA_DIR / "img2_kp_py.png"))
+
+    # Min sampling value set to 8.0, so only keypoints with scale >= 8.0 will have their descriptors drawn.
+    sift.draw_descriptors(str(IMG1), kp1, 8, str(DATA_DIR / "descriptors"))
+
 
 
 if __name__ == "__main__":
     main()
-
-
