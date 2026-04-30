@@ -380,6 +380,10 @@ def main(argv: list[str] | None = None) -> None:
     try:
         parameter_space = json.loads(Path(args.param_file).read_text()) if args.param_file else PARAMETER_SPACE
     except (json.JSONDecodeError, FileNotFoundError) as e: sys.exit(f"Error loading parameter file: {e}")
+
+    (out_dir / "parameter_space.json").write_text(json.dumps(parameter_space, indent=2))
+    print(f"[OK] Parameter space configuration saved to: {out_dir / 'parameter_space.json'}")
+    
     img_dir = Path(args.image_dir)
     if not img_dir.is_dir(): sys.exit(f"Error: image directory not found: {img_dir}")
     all_image_path_pairs = _find_image_pairs(img_dir)
