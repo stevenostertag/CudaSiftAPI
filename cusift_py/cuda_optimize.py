@@ -484,7 +484,16 @@ def main(argv: list[str] | None = None) -> None:
             loaded_images = {i: _load_image_grayscale(Path(p)) for i, p in tqdm(enumerate(unique_paths), total=len(unique_paths), desc="Loading Full Dataset")}
             total_size = sum(arr.nbytes for arr in loaded_images.values())
             
-            recalc_shm = shared_memory.SharedMemory(create=True, size=total_size, name="recalc_shm")
+            try:
+                recalc_shm = shared_memory.SharedMemory(create=True, size=total_size, name="recalc_shm")
+            except FileExistsError:
+                print("Warning: Found leaked shared memory block 'recalc_shm'. Cleaning up and recreating.")
+                temp_shm = shared_memory.SharedMemory(name="recalc_shm")
+                temp_shm.close()
+                temp_shm.unlink()
+                recalc_shm = shared_memory.SharedMemory(create=True, size=total_size, name="recalc_shm")
+
+
             print(f"Created final evaluation shared memory block: {total_size / (1024**2):.2f} MB")
             
             shm_flat_view = np.ndarray((total_size,), dtype=np.uint8, buffer=recalc_shm.buf)
@@ -505,14 +514,14 @@ def main(argv: list[str] | None = None) -> None:
             recalculated_succeeded_pairs = {res['run_number']: res['succeeded_keys'] for res in recalc_results}
             print("[OK] Full dataset re-evaluation complete.")
             all_run_succeeded_pairs = recalculated_succeeded_pairs
+
+            run_final_coverage_sort(all_run_best_params, all_run_succeeded_pairs, out_dir, args.system)
+
     finally:
         if recalc_shm is not None:
             print("Final cleanup: Unlinking final evaluation shared memory block.")
             recalc_shm.close()
             recalc_shm.unlink()
-            
-    # --- FINAL SORT STEP ---
-    run_final_coverage_sort(all_run_best_params, all_run_succeeded_pairs, out_dir, args.system)
     
     sys.exit(0)
 
