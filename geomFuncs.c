@@ -1,9 +1,8 @@
 #include <math.h>
 #include <string.h>
-#include <immintrin.h>
 #include "cudaSift.h"
 
-/* Portable 32-byte alignment for AVX2 */
+/* Portable 32-byte alignment */
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 #define ALIGN32 _Alignas(32)
 #elif defined(_MSC_VER)
@@ -15,26 +14,81 @@
 #endif
 
 /*
- * Fast approximate 1/sqrt(x) using SSE rsqrt + one Newton-Raphson step.
- * ~23 bits of mantissa accuracy, much faster than 1.0f / sqrtf(x).
+ * =========================================================================
+ * Architecture-Specific Intrinsics Abstraction
+ * =========================================================================
  */
+
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#define USE_NEON
+
+static inline float fast_rsqrtf(float x)
+{
+    float32x4_t vx = vdupq_n_f32(x);
+    float32x4_t est = vrsqrteq_f32(vx);
+    float32x4_t half_x = vmulq_f32(vdupq_n_f32(0.5f), vx);
+    float32x4_t est_sq = vmulq_f32(est, est);
+    float32x4_t nr = vsubq_f32(vdupq_n_f32(1.5f), vmulq_f32(half_x, est_sq));
+    return vgetq_lane_f32(vmulq_f32(est, nr), 0);
+}
+static inline void accumulate_outer(float M[8][8], const float *Y, float w)
+{
+    float32x4_t y_vec0 = vld1q_f32(&Y[0]);
+    float32x4_t y_vec1 = vld1q_f32(&Y[4]);
+    for (int r = 0; r < 8; r++)
+    {
+        float32x4_t yr_w = vdupq_n_f32(Y[r] * w);
+        float32x4_t m_row0 = vld1q_f32(&M[r][0]);
+        float32x4_t m_row1 = vld1q_f32(&M[r][4]);
+        m_row0 = vfmaq_f32(m_row0, y_vec0, yr_w);
+        m_row1 = vfmaq_f32(m_row1, y_vec1, yr_w);
+        vst1q_f32(&M[r][0], m_row0);
+        vst1q_f32(&M[r][4], m_row1);
+    }
+}
+static inline void accumulate_vec(float *X, const float *Y, float s)
+{
+    float32x4_t x_vec0 = vld1q_f32(&X[0]);
+    float32x4_t x_vec1 = vld1q_f32(&X[4]);
+    float32x4_t y_vec0 = vld1q_f32(&Y[0]);
+    float32x4_t y_vec1 = vld1q_f32(&Y[4]);
+    float32x4_t s_vec = vdupq_n_f32(s);
+    x_vec0 = vfmaq_f32(x_vec0, y_vec0, s_vec);
+    x_vec1 = vfmaq_f32(x_vec1, y_vec1, s_vec);
+    vst1q_f32(&X[0], x_vec0);
+    vst1q_f32(&X[4], x_vec1);
+}
+static inline void zero_system(float M[8][8], float X[8])
+{
+    float32x4_t zero = vdupq_n_f32(0.0f);
+    for (int r = 0; r < 8; r++)
+    {
+        vst1q_f32(&M[r][0], zero);
+        vst1q_f32(&M[r][4], zero);
+    }
+    vst1q_f32(&X[0], zero);
+    vst1q_f32(&X[4], zero);
+}
+static inline void prefetch_point(const SiftPoint *pt)
+{
+    __builtin_prefetch((const void *)pt, 0, 3);
+}
+
+#elif defined(__x86_64__) || defined(_M_X64)
+#include <immintrin.h>
+#define USE_AVX2
+
 static inline float fast_rsqrtf(float x)
 {
     __m128 vx = _mm_set_ss(x);
     __m128 est = _mm_rsqrt_ss(vx);
-    /* Newton-Raphson: est *= 1.5 - 0.5 * x * est^2 */
     __m128 half_x = _mm_mul_ss(_mm_set_ss(0.5f), vx);
     __m128 est_sq = _mm_mul_ss(est, est);
     __m128 nr = _mm_sub_ss(_mm_set_ss(1.5f), _mm_mul_ss(half_x, est_sq));
     return _mm_cvtss_f32(_mm_mul_ss(est, nr));
 }
-
-/*
- * Accumulate the rank-1 outer product  M += Y * Y^T * w  using AVX2 FMA.
- * M is 8x8 row-major (32-byte aligned rows), Y is 8-element (32-byte aligned).
- */
-static inline void accumulate_outer_avx2(float M[8][8],
-                                         const float *Y, float w)
+static inline void accumulate_outer(float M[8][8], const float *Y, float w)
 {
     __m256 y_vec = _mm256_load_ps(Y);
     for (int r = 0; r < 8; r++)
@@ -45,12 +99,7 @@ static inline void accumulate_outer_avx2(float M[8][8],
         _mm256_store_ps(&M[r][0], m_row);
     }
 }
-
-/*
- * Accumulate  X += Y * scalar  using AVX2 FMA.
- * Both X and Y are 8-element, 32-byte aligned.
- */
-static inline void accumulate_vec_avx2(float *X, const float *Y, float s)
+static inline void accumulate_vec(float *X, const float *Y, float s)
 {
     __m256 x_vec = _mm256_load_ps(X);
     __m256 y_vec = _mm256_load_ps(Y);
@@ -58,19 +107,30 @@ static inline void accumulate_vec_avx2(float *X, const float *Y, float s)
     x_vec = _mm256_fmadd_ps(y_vec, s_vec, x_vec);
     _mm256_store_ps(X, x_vec);
 }
+static inline void zero_system(float M[8][8], float X[8])
+{
+    __m256 zero = _mm256_setzero_ps();
+    for (int r = 0; r < 8; r++)
+        _mm256_store_ps(&M[r][0], zero);
+    _mm256_store_ps(X, zero);
+}
+static inline void prefetch_point(const SiftPoint *pt)
+{
+    _mm_prefetch((const char *)pt, _MM_HINT_T0);
+}
+#endif
 
 /*
- * Solve the 8x8 linear system M * x = b in-place using Cholesky
- * decomposition (M = L * L^T). M must be symmetric positive-definite.
- *
- * Returns 0 on success, -1 if the matrix is not positive-definite.
+ * =========================================================================
+ * Shared Algorithm Logic
+ * =========================================================================
  */
+
 static int solve_cholesky_8x8(float M[8][8], float b[8])
 {
     float L[8][8];
     memset(L, 0, sizeof(L));
 
-    /* Cholesky factorisation: M = L * L^T */
     for (int i = 0; i < 8; i++)
     {
         for (int j = 0; j <= i; j++)
@@ -78,12 +138,11 @@ static int solve_cholesky_8x8(float M[8][8], float b[8])
             float sum = 0.0f;
             for (int k = 0; k < j; k++)
                 sum += L[i][k] * L[j][k];
-
             if (i == j)
             {
                 float val = M[i][i] - sum;
                 if (val <= 0.0f)
-                    return -1; /* not positive-definite */
+                    return -1;
                 L[i][j] = sqrtf(val);
             }
             else
@@ -92,8 +151,6 @@ static int solve_cholesky_8x8(float M[8][8], float b[8])
             }
         }
     }
-
-    /* Forward substitution: L * y = b  (y stored in b) */
     for (int i = 0; i < 8; i++)
     {
         float sum = 0.0f;
@@ -101,8 +158,6 @@ static int solve_cholesky_8x8(float M[8][8], float b[8])
             sum += L[i][k] * b[k];
         b[i] = (b[i] - sum) / L[i][i];
     }
-
-    /* Back substitution: L^T * x = y  (x stored in b) */
     for (int i = 7; i >= 0; i--)
     {
         float sum = 0.0f;
@@ -110,7 +165,6 @@ static int solve_cholesky_8x8(float M[8][8], float b[8])
             sum += L[k][i] * b[k];
         b[i] = (b[i] - sum) / L[i][i];
     }
-
     return 0;
 }
 
@@ -123,9 +177,9 @@ int ImproveHomography(SiftData *data, float *homography, int numLoops,
     SiftPoint *mpts = data->h_data;
     float limit = thresh * thresh;
     int numPts = data->numPts;
-
-    float A[8]; /* current homography parameters (h9 = 1) */
+    float A[8];
     float inv_h8 = 1.0f / homography[8];
+
     for (int i = 0; i < 8; i++)
         A[i] = homography[i] * inv_h8;
 
@@ -135,17 +189,12 @@ int ImproveHomography(SiftData *data, float *homography, int numLoops,
         ALIGN32 float X[8];
         ALIGN32 float Y[8];
 
-        /* Zero M and X with AVX2 stores */
-        __m256 zero = _mm256_setzero_ps();
-        for (int r = 0; r < 8; r++)
-            _mm256_store_ps(&M[r][0], zero);
-        _mm256_store_ps(X, zero);
+        zero_system(M, X);
 
         for (int i = 0; i < numPts; i++)
         {
-            /* Prefetch next SiftPoint into L1 cache */
             if (i + 1 < numPts)
-                _mm_prefetch((const char *)&mpts[i + 1], _MM_HINT_T0);
+                prefetch_point(&mpts[i + 1]);
 
             SiftPoint *pt = &mpts[i];
             if (pt->score < minScore || pt->ambiguity > maxAmbiguity)
@@ -155,22 +204,12 @@ int ImproveHomography(SiftData *data, float *homography, int numLoops,
             float yp = pt->ypos;
             float mx = pt->match_xpos;
             float my = pt->match_ypos;
-
             float den = A[6] * xp + A[7] * yp + 1.0f;
             float inv_den = 1.0f / den;
             float dx = (A[0] * xp + A[1] * yp + A[2]) * inv_den - mx;
             float dy = (A[3] * xp + A[4] * yp + A[5]) * inv_den - my;
             float err_sq = dx * dx + dy * dy;
 
-            /* Huber weight: 1 for inliers, thresh/err for outliers */
-            // float wei = (err_sq <= limit) ? 1.0f
-            //                               : thresh * fast_rsqrtf(err_sq);
-
-            /* Tukey's biweight: (1 - (err/thresh)^2)^2 for inliers, 0 for outliers */
-            // float r = sqrtf(err_sq) / thresh;
-            // float wei = (r < 1.0f) ? powf(1.0f - r * r, 2) : 0.0f;
-
-            /* Binary weight */
             float wei = (err_sq <= limit) ? 1.0f : 0.0f;
 
             /* --- x-equation contribution --- */
@@ -183,8 +222,8 @@ int ImproveHomography(SiftData *data, float *homography, int numLoops,
             Y[6] = -xp * mx;
             Y[7] = -yp * mx;
 
-            accumulate_outer_avx2(M, Y, wei);
-            accumulate_vec_avx2(X, Y, mx * wei);
+            accumulate_outer(M, Y, wei);
+            accumulate_vec(X, Y, mx * wei);
 
             /* --- y-equation contribution --- */
             Y[0] = 0.0f;
@@ -196,19 +235,16 @@ int ImproveHomography(SiftData *data, float *homography, int numLoops,
             Y[6] = -xp * my;
             Y[7] = -yp * my;
 
-            accumulate_outer_avx2(M, Y, wei);
-            accumulate_vec_avx2(X, Y, my * wei);
+            accumulate_outer(M, Y, wei);
+            accumulate_vec(X, Y, my * wei);
         }
 
-        /* Solve M * A = X via Cholesky */
         if (solve_cholesky_8x8(M, X) != 0)
-            break; /* degenerate — keep current A */
-
+            break;
         for (int i = 0; i < 8; i++)
             A[i] = X[i];
     }
 
-    /* Count inliers and set per-point match_error */
     int numfit = 0;
     for (int i = 0; i < numPts; i++)
     {
@@ -217,6 +253,7 @@ int ImproveHomography(SiftData *data, float *homography, int numLoops,
         float dx = (A[0] * pt->xpos + A[1] * pt->ypos + A[2]) / den - pt->match_xpos;
         float dy = (A[3] * pt->xpos + A[4] * pt->ypos + A[5]) / den - pt->match_ypos;
         float err = dx * dx + dy * dy;
+
         if (err < limit)
             numfit++;
         pt->match_error = sqrtf(err);

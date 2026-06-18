@@ -35,6 +35,23 @@ set(CUDA_SOURCES cudaImage.cu cudaSiftH.cu matching.cu cusift.cu)
 
 set(C_SOURCES geomFuncs.c)
 
+# Check architecture to conditionally add x86-specific compile flags
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64)")
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag("-mavx2" COMPILER_SUPPORTS_AVX2)
+  if(COMPILER_SUPPORTS_AVX2)
+    message(
+      STATUS "x86 architecture detected. Applying AVX2 flags to geomFuncs.")
+    set_source_files_properties(geomFuncs.c PROPERTIES COMPILE_OPTIONS
+                                                       "-mavx2;-mfma")
+  endif()
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(aarch64|ARM64)")
+  message(
+    STATUS
+      "aarch64 architecture detected. NEON intrinsics will be used natively.")
+  # No compile flags are needed! GCC/Clang on aarch64 support NEON natively.
+endif()
+
 # ── CUDA object library (compiled by nvcc) ───────────────
 add_library(cusift_cuda OBJECT ${CUDA_SOURCES})
 target_include_directories(cusift_cuda PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
