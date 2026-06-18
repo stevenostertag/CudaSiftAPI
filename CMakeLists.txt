@@ -36,7 +36,12 @@ set(CUDA_SOURCES cudaImage.cu cudaSiftH.cu matching.cu cusift.cu)
 set(C_SOURCES geomFuncs.c)
 
 # Check architecture to conditionally add x86-specific compile flags
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64)")
+if(MSVC)
+  target_compile_options(cusift PRIVATE /W4 /O2 /Zc:preprocessor
+                                        /D_CRT_SECURE_NO_WARNINGS)
+  set_source_files_properties(geomFuncs.c PROPERTIES COMPILE_OPTIONS
+                                                     "/arch:AVX2")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64)")
   include(CheckCXXCompilerFlag)
   check_cxx_compiler_flag("-mavx2" COMPILER_SUPPORTS_AVX2)
   if(COMPILER_SUPPORTS_AVX2)
@@ -93,19 +98,6 @@ target_include_directories(
                 $<INSTALL_INTERFACE:include>)
 
 target_compile_definitions(cusift PRIVATE VERBOSE)
-
-# C/C++ compile options (no COMPILE_LANGUAGE guards needed — only C sources in
-# this target)
-if(MSVC)
-  target_compile_options(cusift PRIVATE /W4 /O2 /Zc:preprocessor
-                                        /D_CRT_SECURE_NO_WARNINGS)
-  set_source_files_properties(geomFuncs.c PROPERTIES COMPILE_OPTIONS
-                                                     "/arch:AVX2")
-else()
-  target_compile_options(cusift PRIVATE -Wall -Wextra -Wpedantic -O2)
-  set_source_files_properties(geomFuncs.c PROPERTIES COMPILE_OPTIONS
-                                                     "-mavx2;-mfma")
-endif()
 
 # Link CUDA runtime (needed since cusift itself has no .cu files)
 find_package(CUDAToolkit REQUIRED)
